@@ -44,6 +44,7 @@
 #include "Emulator/BootAnimationSkip.h"
 #include "MemoryEmulator/Arm/ArmDispatchTable.h"
 #include "VirtualMachine/VMUndefinedArmTable.h"
+#include "MemoryEmulator/HiCodeCacheMapping.h"
 
 #define DEFAULT_ROM_FILE_PATH           "/rom.gba"
 #define BIOS_FILE_PATH                  "/_gba/bios.bin"
@@ -490,6 +491,9 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     setupWramInstructionCache();
     setupEWramDataCache();
 
+    u32 irqs = arm_disableIrqs();
+    hic_initialize();
+    arm_restoreIrqs(irqs);
     rtos_setIrqMask(RTOS_IRQ_VBLANK);
     rtos_ackIrqMask(~0u);
     REG_IME = 1;

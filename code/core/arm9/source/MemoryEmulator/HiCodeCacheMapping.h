@@ -7,6 +7,7 @@ extern "C" {
 #endif
 
 void hic_unmapRomBlock(void);
+void hic_initialize(void);
 
 #ifdef __cplusplus
 }

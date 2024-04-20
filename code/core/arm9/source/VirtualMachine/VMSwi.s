@@ -25,7 +25,6 @@ hicodeContinue:
 
     mov r13, #0
 #ifdef GBAR3_HICODE_CACHE_MAPPING
-    mcr p15, 0, r13, c9, c0, 1 // unlock icache
     mcr	p15, 0, r13, c6, c4, 0 // disable mpu region
 #endif
     mcr p15, 0, r13, c7, c5, 0
@@ -89,8 +88,6 @@ old_mode_4:
 hicodeLoadFromCache:
     sub r13, lr, #2
     bic r13, r13, #0xFE000000
-    tst r13, #0x800
-    orrne r13, r13, #0x40000000 // set
     mcr p15, 3, r13, c15, c0, 0 // set index
     mrc p15, 3, r13, c15, c3, 0 // read data
     and r13, r13, #0xFF

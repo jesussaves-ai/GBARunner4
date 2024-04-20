@@ -10,7 +10,6 @@
 /// @param lr Return address
 arm_func hic_unmapRomBlock
     mov r0, #0
-    mcr p15, 0, r0, c9, c0, 1 // unlock icache
     mcr	p15, 0, r0, c6, c4, 0 // disable mpu region
     bx lr
 
@@ -19,7 +18,8 @@ arm_func hic_unmapRomBlock
 /// @param sp Stack pointer
 /// @param lr Return address
 arm_func hic_mapRomBlock
-    push {r4, lr}
+    push {r4, r5, lr}
+    and r5, r0, #(1 << 11)
     bic r4, r0, #0x06000000
     mov r4, r4, lsr #12
     mov r4, r4, lsl #12
@@ -28,19 +28,23 @@ arm_func hic_mapRomBlock
     orr r12, r4, #0x17
     ldr r0, [r1, r4, lsr #(SDC_BLOCK_SHIFT - 2)]
     mcr	p15, 0, r12, c6, c4, 0
-    
+
     cmp r0, #0
     moveq r0, r4
     bleq sdc_loadRomBlockDirect
+    add r0, r0, r5
+    add r4, r4, r5
 
     orr r1, r4, #(1 << 4) //valid flag
 
     mov r12, #0x80000000 //load bit + segment 0
     mcr p15, 0, r12, c9, c0, 1
 
-prefetchCacheSet0:
-    mov r12, #64
+    eor r4, r1, #2048 // opposite half of protection region
+    orr r5, r4, #(1 << 30) // segment 1
+    mov r12, #64 // cache lines
 1:
+    // segment 0 (hicode)
     mcr p15, 0, r0, c7, c13, 1 //prefetch
     mcr p15, 3, r0, c15, c0, 0 //set index
     mcr p15, 3, r1, c15, c1, 0 //write tag
@@ -57,44 +61,76 @@ prefetchCacheSet0:
     mcr p15, 3, r0, c15, c0, 0 //set index
     mcr p15, 3, r1, c15, c1, 0 //write tag
     add r0, r0, #32
+
+    // segment 1 (undefined instructions)
+    mcr p15, 3, r5, c15, c0, 0 //set index
+    mcr p15, 3, r4, c15, c1, 0 //write tag
+    add r5, r5, #32
+    mcr p15, 3, r5, c15, c0, 0 //set index
+    mcr p15, 3, r4, c15, c1, 0 //write tag
+    add r5, r5, #32
+    mcr p15, 3, r5, c15, c0, 0 //set index
+    mcr p15, 3, r4, c15, c1, 0 //write tag
+    add r5, r5, #32
+    mcr p15, 3, r5, c15, c0, 0 //set index
+    mcr p15, 3, r4, c15, c1, 0 //write tag
+    add r5, r5, #32
+
     subs r12, r12, #4
     bne 1b
 
-    add r1, r1, #2048
-    mov r12, #0x80000001 //load bit + segment 1
+    mov r12, #0x00000002 //segment 2
     mcr p15, 0, r12, c9, c0, 1
-    orr r3, r1, #(1 << 30)
 
-prefetchCacheSet1:
-    mov r12, #64
-2:
-    mcr p15, 0, r0, c7, c13, 1 //prefetch
-    add r0, r0, #32
-    mcr p15, 0, r0, c7, c13, 1 //prefetch
-    add r0, r0, #32
-    mcr p15, 0, r0, c7, c13, 1 //prefetch
-    add r0, r0, #32
-    mcr p15, 0, r0, c7, c13, 1 //prefetch
-    add r0, r0, #32
+    pop {r4, r5, pc}
 
-    mcr p15, 3, r3, c15, c0, 0 //set index
-    mcr p15, 3, r1, c15, c1, 0 //write tag
-    add r3, r3, #32
-    mcr p15, 3, r3, c15, c0, 0 //set index
-    mcr p15, 3, r1, c15, c1, 0 //write tag
-    add r3, r3, #32
-    mcr p15, 3, r3, c15, c0, 0 //set index
-    mcr p15, 3, r1, c15, c1, 0 //write tag
-    add r3, r3, #32
-    mcr p15, 3, r3, c15, c0, 0 //set index
-    mcr p15, 3, r1, c15, c1, 0 //write tag
-    add r3, r3, #32
-
-    subs r12, r12, #4
-    bne 2b
-
-    mov r0, #0x00000002 //segment 2
+arm_func hic_initialize
+    // lock half of the cache
+    mov r0, #0x00000002 // segment 2
     mcr p15, 0, r0, c9, c0, 1
-    pop {r4, pc}
+    // segment 1 is filled with undefined instructions
+    ldr r1,= 0xEE01E801 // undefined instruction in both arm and thumb
+    mov r0, #(1 << 30) // segment 1, index 0, word 0
+    mov r2, #0 // invalid tag
+    mov r3, #2048
+1:
+    mcr p15, 3, r0, c15, c0, 0 //set index
+    mcr p15, 3, r2, c15, c1, 0 //write tag
+    mcr p15, 3, r1, c15, c3, 0 //write data
+    add r0, r0, #(1 << 2)
+    mcr p15, 3, r0, c15, c0, 0 //set index
+    mcr p15, 3, r1, c15, c3, 0 //write data
+    add r0, r0, #(1 << 2)
+    mcr p15, 3, r0, c15, c0, 0 //set index
+    mcr p15, 3, r1, c15, c3, 0 //write data
+    add r0, r0, #(1 << 2)
+    mcr p15, 3, r0, c15, c0, 0 //set index
+    mcr p15, 3, r1, c15, c3, 0 //write data
+    add r0, r0, #(1 << 2)
+    mcr p15, 3, r0, c15, c0, 0 //set index
+    mcr p15, 3, r1, c15, c3, 0 //write data
+    add r0, r0, #(1 << 2)
+    mcr p15, 3, r0, c15, c0, 0 //set index
+    mcr p15, 3, r1, c15, c3, 0 //write data
+    add r0, r0, #(1 << 2)
+    mcr p15, 3, r0, c15, c0, 0 //set index
+    mcr p15, 3, r1, c15, c3, 0 //write data
+    add r0, r0, #(1 << 2)
+    mcr p15, 3, r0, c15, c0, 0 //set index
+    mcr p15, 3, r1, c15, c3, 0 //write data
+    add r0, r0, #(1 << 2)
+    subs r3, r3, #32
+    bne 1b
+    bx lr
+
+arm_func hic_undefinedHicodeMiss
+    tst r13, #0x20 // spsr thumb bit
+        subeq lr, lr, #4 // arm
+        subne lr, lr, #2 // thumb
+    ldr sp,= dtcmStackEnd
+    push {r0-r3, r12, lr}
+    mov r0, lr
+    bl hic_mapRomBlock
+    ldmfd sp, {r0-r3, r12, pc}^
 
 #endif
