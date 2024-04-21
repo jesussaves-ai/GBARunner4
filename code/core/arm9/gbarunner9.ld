@@ -268,8 +268,10 @@ SECTIONS
 		__bss_start__ = ABSOLUTE(.);
 		*(.dynbss)
 		*(.gnu.linkonce.b*)
-		*(.bss*)
+		*(EXCLUDE_FILE(HiCodeCacheMapping.o) .bss*)
 		*(COMMON)
+		. = ALIGN(2048);
+		KEEP (HiCodeCacheMapping.o(.bss))
 		. = ALIGN(4);    /* REQUIRED. LD is flaky without it. */
 	} >vrama :NONE
 

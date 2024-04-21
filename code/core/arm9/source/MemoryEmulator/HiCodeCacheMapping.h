@@ -1,6 +1,9 @@
 #pragma once
+#include "HiCodeCacheMappingDefs.h"
 
 #ifdef GBAR3_HICODE_CACHE_MAPPING
+
+extern u32 gHicodeUndefinedData[];
 
 #ifdef __cplusplus
 extern "C" {
