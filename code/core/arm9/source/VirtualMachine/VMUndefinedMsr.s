@@ -100,15 +100,6 @@ generate vm_armUndefinedMsrRegCpsrRm, 16
 
 generate vm_armUndefinedMsrRegSpsrRm, 16
 
-arm_func vm_armUndefinedMsrImmSpsr
-    and r8, lr, #0xF
-    and r10, lr, #0xF00
-    orr r8, r8, r10, lsr #4
-    and r10, lr, #0xF000
-    mov r10, r10, lsr #11
-    mov r8, r8, ror r10
-    b vm_updateSpsr
-
 vm_updateSpsrHiReg:
     ldr r8, [r11]
 vm_updateSpsr:
