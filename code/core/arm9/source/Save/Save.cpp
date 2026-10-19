@@ -83,7 +83,7 @@ static void loadSaveClusterMap(void)
     f_lseek(&gSaveFile, CREATE_LINKMAP);
 }
 
-[[gnu::noinline]]
+[[gnu::noinline, gnu::optimize("Os")]]
 static void fillSaveFile(u32 start, u32 end)
 {
     const u8 saveFill = SAVE_DATA_FILL;
@@ -96,35 +96,35 @@ static void fillSaveFile(u32 start, u32 end)
     f_sync(&gSaveFile);
 }
 
-void sav_initializeSave(const SaveTypeInfo* saveTypeInfo, const char* savePath)
+[[gnu::noinline]]
+static void growSaveFile(u32 start, u32 end)
+{
+    if (f_lseek(&gSaveFile, end) == FR_OK)
+    {
+        fillSaveFile(start, end);
+    }
+}
+
+__attribute__((optimize("Os"))) void sav_initializeSave(const SaveTypeInfo* saveTypeInfo, const char* savePath)
 {
     u32 saveSize = saveTypeInfo ? saveTypeInfo->size : DEFAULT_SAVE_SIZE;
+    bool isNitro = Environment::IsIsNitroEmulator();
     memset(gSaveData, SAVE_DATA_FILL, SAVE_DATA_SIZE);
-    if (Environment::IsIsNitroEmulator())
+    if (isNitro)
     {
         memset((void*)ISNITRO_SAVE_BUFFER, SAVE_DATA_FILL, ISNITRO_SAVE_BUFFER_SIZE);
     }
     memset(&gSaveFile, 0, sizeof(gSaveFile));
-    if (f_open(&gSaveFile, savePath, FA_OPEN_EXISTING | FA_READ | FA_WRITE) == FR_OK)
+    // Outside the Nitro emulator, open an existing file or create a new one.
+    u32 openFlags = isNitro
+        ? (FA_OPEN_EXISTING | FA_READ | FA_WRITE)
+        : (FA_OPEN_ALWAYS | FA_READ | FA_WRITE);
+    if (f_open(&gSaveFile, savePath, openFlags) == FR_OK)
     {
-        bool clusterMapLoaded = false;
+        // A newly created file has size 0; an already larger file makes the fill range empty.
         u32 initialSize = f_size(&gSaveFile);
-        if (initialSize < saveSize)
-        {
-            if (f_lseek(&gSaveFile, saveSize) == FR_OK)
-            {
-                f_rewind(&gSaveFile);
-                loadSaveClusterMap();
-                clusterMapLoaded = true;
-                fillSaveFile(initialSize, saveSize);
-            }
-        }
-
-        if (!clusterMapLoaded)
-        {
-            loadSaveClusterMap();
-            clusterMapLoaded = true;
-        }
+        growSaveFile(initialSize, saveSize);
+        loadSaveClusterMap();
 
         if (saveSize <= SAVE_DATA_SIZE)
         {
@@ -133,23 +133,11 @@ void sav_initializeSave(const SaveTypeInfo* saveTypeInfo, const char* savePath)
             f_read(&gSaveFile, gSaveData, saveSize, &read);
         }
 
-        if (Environment::IsIsNitroEmulator())
+        if (isNitro)
         {
             f_rewind(&gSaveFile);
             UINT read = 0;
             f_read(&gSaveFile, (void*)ISNITRO_SAVE_BUFFER, saveSize, &read);
-        }
-    }
-    else if (!Environment::IsIsNitroEmulator())
-    {
-        if (f_open(&gSaveFile, savePath, FA_CREATE_NEW | FA_READ | FA_WRITE) == FR_OK)
-        {
-            if (f_lseek(&gSaveFile, saveSize) == FR_OK)
-            {
-                f_rewind(&gSaveFile);
-                loadSaveClusterMap();
-                fillSaveFile(0, saveSize);
-            }
         }
     }
 
