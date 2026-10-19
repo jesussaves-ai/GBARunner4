@@ -9,6 +9,7 @@
 static void armJitNotImplemented()
 {
     asm volatile ("bkpt #0");
+    __builtin_unreachable();
 }
 
 [[gnu::noinline]]
@@ -226,7 +227,7 @@ void jit_processArmBlock(u32* ptr)
 }
 
 [[gnu::section(".itcm")]]
-u32* jit_handleArmUndefined(u32 instruction, u32* instructionPtr, u32* registers, u32 cpsr)
+__attribute__((optimize("Os"))) u32* jit_handleArmUndefined(u32 instruction, u32* instructionPtr, u32* registers, u32 cpsr)
 {
     // if ((instruction & 0x0F000000) == 0x0C000000)
     // {
@@ -257,15 +258,27 @@ u32* jit_handleArmUndefined(u32 instruction, u32* instructionPtr, u32* registers
     //     }
     //     return (u32*)address;
     // }
-    if ((instruction & 0x0FC00010) == 0x0E000000)
+    if ((instruction & 0x0FA00010) == 0x0E000000)
     {
-        // ALU{S} pc, Rn, Rm (imm shift)
+        // ALU{S} pc, Rn, Rm/#imm
         u32 op = (instruction >> 17) & 0xF;
         u32 rn = registers[instruction & 0xF];
-        u32 rm = registers[(instruction >> 5) & 0xF];
-        u32 shiftType = (instruction >> 10) & 0x3;
-        u32 shiftAmount = (instruction >> 12) & 0x1F;
-        u32 op2 = armGetShiftedOperand(rm, shiftType, shiftAmount);
+        u32 op2;
+        if (!(instruction & 0x00400000))
+        {
+            // ALU{S} pc, Rn, Rm (imm shift)
+            u32 rm = registers[(instruction >> 5) & 0xF];
+            u32 shiftType = (instruction >> 10) & 0x3;
+            u32 shiftAmount = (instruction >> 12) & 0x1F;
+            op2 = armGetShiftedOperand(rm, shiftType, shiftAmount);
+        }
+        else
+        {
+            // ALU{S} pc, Rn, #imm
+            u32 imm8 = (instruction >> 5) & 0xFF;
+            u32 ror = ((instruction >> 13) & 0xF) << 1;
+            op2 = (imm8 >> ror) | (imm8 << (32 - ror));
+        }
         u32 branchTarget;
         switch (op)
         {
@@ -283,98 +296,50 @@ u32* jit_handleArmUndefined(u32 instruction, u32* instructionPtr, u32* registers
                 break;
         }
         branchTarget &= ~3;
-        if (instruction & 0x00200000)
-        {
-            // ALUS pc, Rn, Rm (imm shift)
-            armJitNotImplemented();
-        }
         jit_ensureBlockJitted((void*)branchTarget);
         return (u32*)branchTarget;
     }
-    else if ((instruction & 0x0FC00010) == 0x0E400000)
+    else if ((instruction & 0x0FF00010) == 0x07E00010)
     {
-        // ALU{S} pc, Rn, #imm
-        u32 imm8 = (instruction >> 5) & 0xFF;
-        u32 ror = ((instruction >> 13) & 0xF) << 1;
-        u32 op = (instruction >> 17) & 0xF;
-        u32 rn = registers[instruction & 0xF];
-        u32 imm = (imm8 >> ror) | (imm8 << (32 - ror));
-        u32 branchTarget;
-        switch (op)
-        {
-            case 2: // sub
-                branchTarget = rn - imm;
-                break;
-            case 4: // add
-                branchTarget = rn + imm;
-                break;
-            case 0xD: // mov
-                branchTarget = imm;
-                break;
-            default:
-                armJitNotImplemented();
-                break;
-        }
-        branchTarget &= ~3;
-        if (instruction & 0x00200000)
-        {
-            // ALUS pc, Rn, #imm
-            armJitNotImplemented();
-        }
-        jit_ensureBlockJitted((void*)branchTarget);
-        return (u32*)branchTarget;
-    }
-    else if ((instruction & 0x0E500010) == 0x06400010)
-    {
-        // LDM Rn{!}, {...,pc}
+        // LDMIA Rn!, {...,pc}
         u32 rn = instruction & 0xF;
-        if ((instruction & 0x01A00000) == 0x00A00000)
+        u32* src = (u32*)registers[rn];
+        u32 align = (u32)src & 3;
+        src = (u32*)((u32)src & ~3);
+        for (u32 i = 0; i < 15; i++)
         {
-            // LDMIA Rn!, {...,pc}
-            u32* src = (u32*)registers[rn];
-            u32 align = (u32)src & 3;
-            src = (u32*)((u32)src & ~3);
-            for (u32 i = 0; i < 15; i++)
+            if (instruction & (0x20 << i))
             {
-                if (instruction & (0x20 << i))
-                {
-                    registers[i] = *src++;
-                }
+                registers[i] = *src++;
             }
-            u32 branchDestination = *src++;
-            branchDestination &= ~3;
-            registers[rn] = (u32)src | align;
-            jit_ensureBlockJitted((void*)branchDestination);
-            return (u32*)branchDestination;
         }
-        armJitNotImplemented();
+        u32 branchDestination = *src++;
+        branchDestination &= ~3;
+        registers[rn] = (u32)src | align;
+        jit_ensureBlockJitted((void*)branchDestination);
+        return (u32*)branchDestination;
     }
-    else if ((instruction & 0x0F900810) == 0x0E800010)
+    else if ((instruction & 0x0FF00C10) == 0x0EC00410)
     {
-        // ldr pc
-        if ((instruction & 0x00600400) == 0x00400400)
+        // ldr pc, [Rn, Rm, shift]
+        u32 rn = registers[instruction & 0xF];
+        u32 rm = registers[(instruction >> 5) & 0xF];
+        u32 shiftType = (instruction >> 13) & 0x3;
+        u32 shiftAmount = (instruction >> 15) & 0x1F;
+        u32 op2 = armGetShiftedOperand(rm, shiftType, shiftAmount);
+        u32 address = (rn + op2) & ~3;
+        u32 branchDestination;
+        if (address >= ROM_LINEAR_DS_ADDRESS && address < ROM_LINEAR_END_DS_ADDRESS)
         {
-            //ldr pc, [Rn, Rm, shift]
-            u32 rn = registers[instruction & 0xF];
-            u32 rm = registers[(instruction >> 5) & 0xF];
-            u32 shiftType = (instruction >> 13) & 0x3;
-            u32 shiftAmount = (instruction >> 15) & 0x1F;
-            u32 op2 = armGetShiftedOperand(rm, shiftType, shiftAmount);
-            u32 address = (rn + op2) & ~3;
-            u32 branchDestination;
-            if (address >= ROM_LINEAR_DS_ADDRESS && address < ROM_LINEAR_END_DS_ADDRESS)
-            {
-                branchDestination = *(u32*)address;
-            }
-            else
-            {
-                branchDestination = memu_load32FromC(address);
-            }
-            branchDestination &= ~3;
-            jit_ensureBlockJitted((void*)branchDestination);
-            return (u32*)branchDestination;
+            branchDestination = *(u32*)address;
         }
-        armJitNotImplemented();
+        else
+        {
+            branchDestination = memu_load32FromC(address);
+        }
+        branchDestination &= ~3;
+        jit_ensureBlockJitted((void*)branchDestination);
+        return (u32*)branchDestination;
     }
     armJitNotImplemented();
     return instructionPtr + 1;
