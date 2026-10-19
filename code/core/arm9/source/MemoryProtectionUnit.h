@@ -52,9 +52,7 @@ extern "C" {
 #endif
 
 extern void mpu_setRegionInstructionCacheEnable(MpuRegion region, bool enabled);
-extern void mpu_setRegionInstructionAccessPermission(MpuRegion region, MpuAccessPermission accessPermission);
 extern void mpu_setRegionDataCacheEnable(MpuRegion region, bool enabled);
-extern void mpu_setRegionDataAccessPermission(MpuRegion region, MpuAccessPermission accessPermission);
 extern void mpu_setRegionDataBufferability(MpuRegion region, bool bufferable);
 extern void mpu_setRegionBaseAndSize(MpuRegion region, u32 configuration);
 

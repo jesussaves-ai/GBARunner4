@@ -13,15 +13,6 @@ arm_func mpu_setRegionInstructionCacheEnable
     mcr p15, 0, r2, c2, c0, 1
     bx lr
 
-arm_func mpu_setRegionInstructionAccessPermission
-    mov r3, #0xF
-    mov r0, r0, lsl #2
-    mrc p15, 0, r2, c5, c0, 3
-    bic r2, r2, r3, lsl r0
-    orr r2, r2, r1, lsl r0
-    mcr p15, 0, r2, c5, c0, 3
-    bx lr
-
 arm_func mpu_setRegionDataCacheEnable
     mov r2, #1
     mov r0, r2, lsl r0
@@ -40,15 +31,6 @@ arm_func mpu_setRegionDataBufferability
     biceq r2, r2, r0
     orrne r2, r2, r0
     mcr p15, 0, r2, c3, c0, 0
-    bx lr
-
-arm_func mpu_setRegionDataAccessPermission
-    mov r3, #0xF
-    mov r0, r0, lsl #2
-    mrc p15, 0, r2, c5, c0, 2
-    bic r2, r2, r3, lsl r0
-    orr r2, r2, r1, lsl r0
-    mcr p15, 0, r2, c5, c0, 2
     bx lr
 
 arm_func mpu_setRegionBaseAndSize
