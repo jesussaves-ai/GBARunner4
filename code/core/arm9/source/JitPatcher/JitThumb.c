@@ -36,7 +36,11 @@ void jit_processThumbBlock(u16* ptr)
         {
             // SWI
             u32 swiOp = instruction & 0xFF;
-            if (swiOp == 0 || swiOp == 0x26 || swiOp >= 0x80)
+            if (swiOp == 0)
+                break;
+            if (swiOp == 0x26)
+                break;
+            if (swiOp >= 0x80)
                 break;
         }
         else if ((instruction & 0xF000) == 0xD000)
@@ -64,25 +68,16 @@ void jit_processThumbBlock(u16* ptr)
             *jitAuxBits |= (instruction & 1) << auxBitIdx;
             break;
         }
-        else if ((instruction & 0xFF87) == 0x4700)
+        else if ((instruction & 0xFF87) == 0x4700
+            || (instruction & 0xFF87) == 0x4487
+            || (instruction & 0xFF87) == 0x4687)
         {
-            // bx Rm
-            *ptr = 0b1011000100000000
-                | (((instruction >> 3) & 0xF) << 4); // Rm
-            break;
-        }
-        else if ((instruction & 0xFF87) == 0x4487)
-        {
-            // add pc, Rm
-            *ptr = 0b1011111100000000
-                | (((instruction >> 3) & 0xF) << 4); // Rm
-            break;
-        }
-        else if ((instruction & 0xFF87) == 0x4687)
-        {
-            // mov pc, Rm
-            *ptr = 0b1101111000000000
-                | (((instruction >> 3) & 0xF) << 4); // Rm
+            // bx Rm, add pc, Rm, or mov pc, Rm
+            u32 op = instruction & 0xFF87;
+            u16 patchOp = op == 0x4700 ? 0b1011000100000000
+                : op == 0x4487 ? 0b1011111100000000
+                : 0b1101111000000000;
+            *ptr = patchOp | (((instruction >> 3) & 0xF) << 4); // Rm
             break;
         }
         else if ((instruction & 0xFF00) == 0xBD00)
@@ -97,15 +92,11 @@ void jit_processThumbBlock(u16* ptr)
         {
             // ldr Rd, [pc, #imm]
             u32 targetAddress = (((u32)ptr + 4) & ~2) + ((instruction & 0xFF) << 2);
-            if (targetAddress >= (u32)blockStart && targetAddress < (u32)blockEnd)
+            u32 blockSize = (u32)blockEnd - (u32)blockStart;
+            if (targetAddress - (u32)blockStart < blockSize && targetAddress > (u32)ptr)
             {
-                if (targetAddress > (u32)ptr)
-                    blockEnd = (void*)targetAddress;
                 // safe pool address needs no patching
-            }
-            else
-            {
-
+                blockEnd = (void*)targetAddress;
             }
         }
         
