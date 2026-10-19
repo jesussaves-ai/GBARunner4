@@ -8,6 +8,9 @@
 #define ARDUINOJSON_USE_LONG_LONG 0
 #define ARDUINOJSON_ENABLE_STD_STREAM 0
 #define ARDUINOJSON_ENABLE_STD_STRING 0
+#ifndef ARDUINOJSON_ENABLE_FLOAT
+#  define ARDUINOJSON_ENABLE_FLOAT 0
+#endif
 
 #ifdef __cplusplus
 
@@ -5105,7 +5108,9 @@ inline bool parseNumber(const char* s, VariantData& result) {
   if (!isdigit(*s) && *s != '.')
     return false;
   mantissa_t mantissa = 0;
+#if ARDUINOJSON_ENABLE_FLOAT
   exponent_t exponent_offset = 0;
+#endif
   const mantissa_t maxUint = JsonUInt(-1);
   while (isdigit(*s)) {
     uint8_t digit = uint8_t(*s - '0');
@@ -5130,6 +5135,7 @@ inline bool parseNumber(const char* s, VariantData& result) {
       return true;
     }
   }
+#if ARDUINOJSON_ENABLE_FLOAT
   while (mantissa > traits::mantissa_max) {
     mantissa /= 10;
     exponent_offset++;
@@ -5179,6 +5185,9 @@ inline bool parseNumber(const char* s, VariantData& result) {
       traits::make_float(static_cast<JsonFloat>(mantissa), exponent);
   result.setFloat(is_negative ? -final_result : final_result);
   return true;
+#else
+  return false;
+#endif
 }
 template <typename T>
 inline T parseNumber(const char* s) {
@@ -5199,8 +5208,10 @@ inline T VariantData::asIntegral() const {
     case VALUE_IS_LINKED_STRING:
     case VALUE_IS_OWNED_STRING:
       return parseNumber<T>(_content.asString.data);
+#if ARDUINOJSON_ENABLE_FLOAT
     case VALUE_IS_FLOAT:
       return convertNumber<T>(_content.asFloat);
+#endif
     default:
       return 0;
   }
@@ -5212,8 +5223,10 @@ inline bool VariantData::asBoolean() const {
     case VALUE_IS_SIGNED_INTEGER:
     case VALUE_IS_UNSIGNED_INTEGER:
       return _content.asUnsignedInteger != 0;
+#if ARDUINOJSON_ENABLE_FLOAT
     case VALUE_IS_FLOAT:
       return _content.asFloat != 0;
+#endif
     case VALUE_IS_NULL:
       return false;
     default:
