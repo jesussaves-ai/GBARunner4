@@ -10,7 +10,6 @@
 struct
 {
     u32 lastHicodeBlock;
-    u32 hicodeBlockMask;
 } gHicodeState;
 
 static inline u32 mpu_getRegion4(void)
@@ -25,17 +24,11 @@ static inline void mpu_setRegion4(u32 config)
     asm volatile("mcr p15, 0, %0, c6, c4, 0\n" :: "r"(config));
 }
 
-static inline void clearHicodeBlocks(u32 mask)
+static inline void clearHicodeCacheSegment(void)
 {
-    while (mask)
+    for (u32 i = 0; i < 2048; i += 32)
     {
-        u32 clz = 31 - __builtin_clz(mask);
-        mask &= ~(1 << clz);
-        u32 offset = clz << HICODE_BLOCK_SHIFT;
-        for (u32 i = 0; i < HICODE_BLOCK_SIZE; i += 32)
-        {
-            ic_prefetch((const u8*)gHicodeUndefinedData + i + offset);
-        }
+        ic_prefetch((const u8*)gHicodeUndefinedData + i);
     }
 }
 
@@ -48,15 +41,9 @@ static inline void mapNewBlock(u32 gbaAddress, const u8* romBlockData)
 
     gHicodeState.lastHicodeBlock = hicodeBlockAddress;
 
-    u32 mask = gHicodeState.hicodeBlockMask;
-    u32 index = (gbaAddress & 0x7FF) >> HICODE_BLOCK_SHIFT;
-    u32 newMask = 1 << index;
-    mask &= ~newMask;
-    gHicodeState.hicodeBlockMask = newMask;
-
     ic_setLockdown(0, true);
 
-    clearHicodeBlocks(mask);
+    clearHicodeCacheSegment();
 
     for (u32 i = 0; i < HICODE_BLOCK_SIZE; i += 32)
     {
@@ -68,7 +55,6 @@ static inline void mapNewBlock(u32 gbaAddress, const u8* romBlockData)
     u32 tag0 = hicodeBlockAddress | (1 << 4);
     u32 tag1 = tag0 ^ 2048;
 
-#pragma GCC unroll 4
     for (u32 i = 0; i < 2048; i += 32)
     {
         cache_setIndex(i);
@@ -81,8 +67,6 @@ static inline void mapNewBlock(u32 gbaAddress, const u8* romBlockData)
 
 static inline void addBlock(u32 gbaAddress, const u8* romBlockData)
 {
-    u32 index = (gbaAddress & 0x7FF) >> HICODE_BLOCK_SHIFT;
-    gHicodeState.hicodeBlockMask |= 1 << index;
     u32 hicodeBlockAddress = gbaAddress & ~(HICODE_BLOCK_SIZE - 1);
     romBlockData += hicodeBlockAddress & 0xFFF;
 
