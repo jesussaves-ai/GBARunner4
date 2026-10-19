@@ -14,81 +14,47 @@ extern const void* jit_armUndefinedBLTable[16];
 extern const void* jit_armUndefinedLdrPcImmRnTable[16];
 extern const void* vm_armUndefinedAluSPCImmRnTable[16];
 
-DTCM_DATA u8 vm_undefinedArmTable[1024];
-
-static void setTableEntry(u32 index, const void* value)
-{
-    vm_undefinedArmTable[index] = -(int)value >> 6;
-}
+// Zero-initialized in .dtcm; only non-zero entries are programmed at startup.
+DTCM_DATA u8 vm_undefinedArmTable[1024] = {};
 
 void vm_initializeUndefinedArmTable()
 {
-    for (u32 index = 0; index < 1024; ++index)
-    {
-        u32 prefix = (index >> 5) & 7;
-        u32 d = (index >> 4) & 1;
-        u32 e = (index >> 3) & 1;
-        u32 f = (index >> 2) & 1;
-        u32 g = (index >> 1) & 1;
-        u32 h = (index >> 0) & 1;
-        u32 x = (index >> 8) & 1;
-        u32 y = (index >> 9) & 1;
+    const u8 msrRegCpsr = -(int)vm_armUndefinedMsrRegCpsrRmTable >> 6;
+    const u8 msrRegSpsr = -(int)vm_armUndefinedMsrRegSpsrRmTable >> 6;
+    const u8 msrImm = -(int)vm_armUndefinedMsrImmTable >> 6;
+    const u8 mrsCpsr = -(int)vm_armUndefinedMrsCpsrRmTable >> 6;
+    const u8 mrsSpsr = -(int)vm_armUndefinedMrsSpsrRmTable >> 6;
+    const u8 aluPcImm = -(int)vm_armUndefinedAluSPCImmRnTable >> 6;
+#ifndef GBAR3_TEST
+    const u8 bx = -(int)jit_armUndefinedBxRmTable >> 6;
+    const u8 b = -(int)jit_armUndefinedBTable >> 6;
+    const u8 bl = -(int)jit_armUndefinedBLTable >> 6;
+    const u8 ldrPcImm = -(int)jit_armUndefinedLdrPcImmRnTable >> 6;
+#endif
 
-        if ((prefix == 0b000) && (d == 1) && (e == 1) && (g == 0))
+    for (u32 base = 0; base < sizeof(vm_undefinedArmTable); base += 0x100)
+    {
+        vm_undefinedArmTable[base + 0x18] = msrRegCpsr;
+        vm_undefinedArmTable[base + 0x1C] = msrRegSpsr;
+        vm_undefinedArmTable[base + 0x19] = msrImm;
+        vm_undefinedArmTable[base + 0x1D] = msrImm;
+        vm_undefinedArmTable[base + 0x1A] = mrsCpsr;
+        vm_undefinedArmTable[base + 0x1E] = mrsSpsr;
+#ifndef GBAR3_TEST
+        vm_undefinedArmTable[base + 0x1B] = bx;
+        // Prefix 6: d=0 selects B, d=1 selects BL.
+        for (u32 i = 0; i < 16; ++i)
         {
-            // MSR
-            if (h == 1)
-            {
-                setTableEntry(index, vm_armUndefinedMsrImmTable);
-            }
-            else
-            {
-                setTableEntry(index, f ? vm_armUndefinedMsrRegSpsrRmTable : vm_armUndefinedMsrRegCpsrRmTable);
-            }
+            vm_undefinedArmTable[base + 0xC0 + i] = b;
+            vm_undefinedArmTable[base + 0xD0 + i] = bl;
         }
-        else if ((prefix == 0b000) && (d == 1) && (e == 1) && (g == 1) && (h == 0))
-        {
-            // MRS
-            setTableEntry(index, f ? vm_armUndefinedMrsSpsrRmTable : vm_armUndefinedMrsCpsrRmTable);
-        }
-    #ifndef GBAR3_TEST
-        else if ((prefix == 0b000) && (d == 1) && (e == 1) && (f == 0) && (g == 1) && (h == 1))
-        {
-            // BX
-            setTableEntry(index, jit_armUndefinedBxRmTable);
-        }
-        else if ((prefix == 0b110) && (d == 0))
-        {
-            // B
-            setTableEntry(index, jit_armUndefinedBTable);
-        }
-        else if ((prefix == 0b110) && (d == 1))
-        {
-            // BL
-            setTableEntry(index, jit_armUndefinedBLTable);
-        }
-        else if ((prefix == 0b111) && (d == 0) && (e == 1) && (f == 0) && (g == 0) && (h == 0) && (x == 0) && (y == 1))
-        {
-            // LDR pc, [Rn, +/-#imm] or LDR pc, [Rn], +/-#imm
-            setTableEntry(index, jit_armUndefinedLdrPcImmRnTable);
-        }
-    #endif
-        else if ((prefix == 0b111) && (d == 0) && (e == 0) && (y == 0))
-        {
-            // ALU pc
-            if ((f == 1) && (g == 1))
-            {
-                // ALUs pc, rn, #imm
-                setTableEntry(index, vm_armUndefinedAluSPCImmRnTable);
-            }
-            else
-            {
-                setTableEntry(index, nullptr);
-            }
-        }
-        else
-        {
-            setTableEntry(index, nullptr);
-        }
+#endif
     }
+#ifndef GBAR3_TEST
+    vm_undefinedArmTable[0x2E8] = ldrPcImm;
+#endif
+    vm_undefinedArmTable[0x0E6] = aluPcImm;
+    vm_undefinedArmTable[0x0E7] = aluPcImm;
+    vm_undefinedArmTable[0x1E6] = aluPcImm;
+    vm_undefinedArmTable[0x1E7] = aluPcImm;
 }
