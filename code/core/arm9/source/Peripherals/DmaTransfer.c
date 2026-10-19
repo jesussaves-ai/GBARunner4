@@ -339,7 +339,7 @@ ITCM_CODE void dma_immTransfer32(u32 src, u32 dst, u32 byteCount, int srcStep, i
     dma_transferRegister = ((u32*)dsDst)[(byteCount >> 2) - 1];
 }
 
-ITCM_CODE static void dmaStop(int channel, GbaDmaChannel* dmaIoBase)
+ITCM_CODE __attribute__((optimize("Os"))) static void dmaStop(int channel, GbaDmaChannel* dmaIoBase)
 {
     dma_state.dmaFlags &= ~DMA_FLAG_HBLANK(channel);
     dma_state.dmaFlags &= ~DMA_FLAG_VBLANK(channel);
@@ -359,29 +359,23 @@ ITCM_CODE static void dmaStop(int channel, GbaDmaChannel* dmaIoBase)
     }
 }
 
-ITCM_CODE static void dmaStartHBlank(int channel, GbaDmaChannel* dmaIoBase, u32 value)
+ITCM_CODE __attribute__((optimize("Os"))) static void dmaStartHBlank(int channel, GbaDmaChannel* dmaIoBase, u32 value)
 {
-    u32 src = dmaIoBase->src;
-    if ((src >= ROM_LINEAR_DS_ADDRESS && src < ROM_LINEAR_END_DS_ADDRESS))
-        return;
     dmaIoBase->control = value;
     dma_state.dmaFlags |= DMA_FLAG_HBLANK(channel);
     vm_forcedIrqMask |= 1 << 1; // hblank irq
     gfx_setHBlankIrqEnabled(true);
-    dma_state.channels[channel].curSrc = src;
+    dma_state.channels[channel].curSrc = dmaIoBase->src;
     dma_state.channels[channel].curDst = dmaIoBase->dst;
     emu_hblankDmaSkipInstruction = hblankDmaSkipDuringVblankInstruction;
     emu_hblankDmaJumpInstructions[channel] = hblankDmaJumpInstructions[channel];
 }
 
-ITCM_CODE static void dmaStartVBlank(int channel, GbaDmaChannel* dmaIoBase, u32 value)
+ITCM_CODE __attribute__((optimize("Os"))) static void dmaStartVBlank(int channel, GbaDmaChannel* dmaIoBase, u32 value)
 {
-    u32 src = dmaIoBase->src;
-    if ((src >= ROM_LINEAR_DS_ADDRESS && src < ROM_LINEAR_END_DS_ADDRESS))
-        return;
     dmaIoBase->control = value;
     dma_state.dmaFlags |= DMA_FLAG_VBLANK(channel);
-    dma_state.channels[channel].curSrc = src;
+    dma_state.channels[channel].curSrc = dmaIoBase->src;
     dma_state.channels[channel].curDst = dmaIoBase->dst;
     emu_vblankDmaJumpInstruction = vblankDmaJumpInstruction;
     emu_vblankDmaJumpInstructions[channel] = vblankDmaJumpInstructions[channel];
@@ -438,7 +432,7 @@ ITCM_CODE void dma_dmaSound(u32 channel)
     }
 }
 
-ITCM_CODE static void dmaStartSound(int channel, GbaDmaChannel* dmaIoBase, u32 value)
+ITCM_CODE __attribute__((optimize("Os"))) static void dmaStartSound(int channel, GbaDmaChannel* dmaIoBase, u32 value)
 {
     dmaIoBase->control = value;
     dma_state.dmaFlags |= DMA_FLAG_SOUND(channel);
@@ -459,25 +453,13 @@ ITCM_CODE static void dmaStartSound(int channel, GbaDmaChannel* dmaIoBase, u32 v
     dc_drainWriteBuffer();
 }
 
-ITCM_CODE static void dmaStartSpecial(int channel, GbaDmaChannel* dmaIoBase, u32 value)
+ITCM_CODE __attribute__((optimize("Os"))) static void dmaStartSpecial(int channel, GbaDmaChannel* dmaIoBase, u32 value)
 {
-    u32 src = dmaIoBase->src;
-    if ((src >= ROM_LINEAR_DS_ADDRESS && src < ROM_LINEAR_END_DS_ADDRESS))
-        return;
-    switch (channel)
-    {
-        case 0:
-            break;
-        case 1:
-        case 2:
-            dmaStartSound(channel, dmaIoBase, value);
-            break;
-        case 3:
-            break;
-    }
+    if ((u32)(channel - 1) < 2)
+        dmaStartSound(channel, dmaIoBase, value);
 }
 
-ITCM_CODE static void dmaStartImmediate(int channel, GbaDmaChannel* dmaIoBase, u32 control)
+ITCM_CODE __attribute__((optimize("Os"))) static void dmaStartImmediate(int channel, GbaDmaChannel* dmaIoBase, u32 control)
 {
     u32 count = dmaIoBase->count;
     if (count == 0)
@@ -520,12 +502,17 @@ ITCM_CODE static void dmaStartImmediate(int channel, GbaDmaChannel* dmaIoBase, u
     vm_restoreIrqYielding(irqYieldingState);
 }
 
-ITCM_CODE static void dmaStart(int channel, GbaDmaChannel* dmaIoBase, u32 control)
+ITCM_CODE __attribute__((optimize("Os"), noinline)) static void dmaStart(int channel, GbaDmaChannel* dmaIoBase, u32 control)
 {
     dmaIoBase->control = control & ~GBA_DMA_CONTROL_ENABLED;
     if (control & GBA_DMA_CONTROL_ROM_DREQ)
         return; // rom dreq
-    switch ((control >> GBA_DMA_CONTROL_MODE_SHIFT) & GBA_DMA_CONTROL_MODE_MASK)
+    u32 mode = (control >> GBA_DMA_CONTROL_MODE_SHIFT) & GBA_DMA_CONTROL_MODE_MASK;
+    u32 src = dmaIoBase->src;
+    if (mode != GBA_DMA_CONTROL_MODE_IMMEDIATE
+        && src >= ROM_LINEAR_DS_ADDRESS && src < ROM_LINEAR_END_DS_ADDRESS)
+        return;
+    switch (mode)
     {
         case GBA_DMA_CONTROL_MODE_IMMEDIATE:
         {
@@ -550,7 +537,7 @@ ITCM_CODE static void dmaStart(int channel, GbaDmaChannel* dmaIoBase, u32 contro
     }
 }
 
-ITCM_CODE void dma_CntHStore16(GbaDmaChannel* dmaIoBase, u32 value)
+ITCM_CODE __attribute__((optimize("Os"))) void dma_CntHStore16(GbaDmaChannel* dmaIoBase, u32 value)
 {
 #ifdef GBAR3_HICODE_CACHE_MAPPING
     hic_unmapRomBlock();
