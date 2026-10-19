@@ -70,7 +70,7 @@ static bool isCurrentlyFetching(void)
     return sCurrentFetch.cacheBlock != SDC_BLOCK_INVALID;
 }
 
-static void finishFetch()
+__attribute__((noinline)) static void finishFetch()
 {
     sCacheBlockToRomBlock[sCurrentFetch.cacheBlock] = sCurrentFetch.romBlock;
     sdc_romBlockToCacheBlock[sCurrentFetch.romBlock] = &sdc_cache[sCurrentFetch.cacheBlock][0];
@@ -79,7 +79,7 @@ static void finishFetch()
     dc_drainWriteBuffer();
 }
 
-static u32 getSdSectorOfRomBlock(u32 romBlock)
+__attribute__((noinline)) static u32 getSdSectorOfRomBlock(u32 romBlock)
 {
     u32 romOffset = romBlock * SDC_BLOCK_SIZE;
     if (romOffset >= f_size(&gFile))
@@ -108,7 +108,7 @@ static u32 getSdSectorOfRomBlock(u32 romBlock)
     return sector;
 }
 
-static void fillOutOfBoundsCacheBlock(u32 romBlock, u32 cacheBlock)
+__attribute__((noinline)) static void fillOutOfBoundsCacheBlock(u32 romBlock, u32 cacheBlock)
 {
     u32 romSize = f_size(&gFile);
     u32 powerOf2RomSize = romSize < 0x100000 ? 0x100000 : (1 << (32 - __builtin_clz(romSize - 1)));
