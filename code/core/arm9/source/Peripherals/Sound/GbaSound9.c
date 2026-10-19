@@ -19,16 +19,18 @@ static const u8 sRegisterMasks[] =
     (u8)~0x3F, (u8)~0x00, (u8)~0xFF, (u8)~0xFF, (u8)~0xFF, (u8)~0xBF, (u8)~0xFF, (u8)~0xFF,
     (u8)~0x1F, (u8)~0xFF, (u8)~0xFF, (u8)~0x1F, (u8)~0xFF, (u8)~0xBF, (u8)~0xFF, (u8)~0xFF,
     (u8)~0xFF, (u8)~0x00, (u8)~0xFF, (u8)~0xFF, (u8)~0x00, (u8)~0xBF, (u8)~0xFF, (u8)~0xFF,
-    (u8)~0x88, (u8)~0x00, (u8)~0xF0, (u8)~0x88, (u8)~0x7F, (u8)~0xFF, (u8)~0xFF, (u8)~0xFF,
+    (u8)~0x88, (u8)~0x00, (u8)~0x00, (u8)~0x88, (u8)~0x7F, (u8)~0xFF, (u8)~0xFF, (u8)~0xFF,
     (u8)~0x00, (u8)~0x00, (u8)~0xFF, (u8)~0xFF, (u8)~0xFF, (u8)~0xFF, (u8)~0xFF, (u8)~0xFF,
     (u8)~0x00, (u8)~0x00, (u8)~0x00, (u8)~0x00, (u8)~0x00, (u8)~0x00, (u8)~0x00, (u8)~0x00,
     (u8)~0x00, (u8)~0x00, (u8)~0x00, (u8)~0x00, (u8)~0x00, (u8)~0x00, (u8)~0x00, (u8)~0x00
 };
 
+typedef u32 __attribute__((may_alias)) u32Alias;
+
 static void resetFifo(gbas_direct_channel_t* channel)
 {
-    channel->readOffset = 0;
-    channel->writeOffset = 0;
+    // readOffset and writeOffset are adjacent, so clear both with one store.
+    *(volatile u32Alias*)&channel->readOffset = 0;
 }
 
 static void writeFifo32(gbas_direct_channel_t* channel, u32 val, u32 mask)
@@ -41,23 +43,32 @@ static void writeFifo32(gbas_direct_channel_t* channel, u32 val, u32 mask)
     channel->writeOffset = (writeOffset + 1) & 7;
 }
 
-static void writeGbAudioReg(u32 reg, u32 val)
+// Registers in 0x80..0x8F that are written even while the master enable is off.
+static const u16 sMasterEnableBypassMask = 0x0F1C; // 0x82, 0x83, 0x84, 0x88..0x8B
+
+static __attribute__((noinline,optimize("Os"))) void writeGbAudioReg(u8 reg, u8 val)
 {
-    if (!gGbaSoundShared.masterEnable && reg != GBA_REG_OFFS_SOUNDCNT_X && reg < 0x90)
+    if (reg == (GBA_REG_OFFS_SOUNDCNT_H + 1))
+    {
+        emu_ioRegisters[reg] = val & 0x77;
+
+        if (val & (GBA_SOUNDCNT_H_DIRECT_A_RESET >> 8))
+            resetFifo(&gGbaSoundShared.directChannels[0]);
+
+        if (val & (GBA_SOUNDCNT_H_DIRECT_B_RESET >> 8))
+            resetFifo(&gGbaSoundShared.directChannels[1]);
+        return;
+    }
+
+    if (!gGbaSoundShared.masterEnable && reg < 0x90 &&
+        (reg < 0x80 || !(sMasterEnableBypassMask & (1u << (reg & 0x0F)))))
         return;
 
     if (reg == GBA_REG_OFFS_SOUNDCNT_X)
     {
-        if (val & GBA_SOUNDCNT_X_MASTER_ENABLE)
-        {
-            emu_ioRegisters[reg] = GBA_SOUNDCNT_X_MASTER_ENABLE;
-            gGbaSoundShared.masterEnable = true;
-        }
-        else
-        {
-            emu_ioRegisters[reg] = 0;
-            gGbaSoundShared.masterEnable = false;
-        }
+        u32 masterEnable = val & GBA_SOUNDCNT_X_MASTER_ENABLE;
+        emu_ioRegisters[reg] = masterEnable;
+        gGbaSoundShared.masterEnable = masterEnable != 0;
     }
     else
     {
@@ -79,7 +90,7 @@ void gbas_init(void)
     ipc_enableArm7Irq();
 }
 
-void gbas_writeSoundRegister(u32 address, u32 value, u32 length)
+__attribute__((optimize("Os"))) void gbas_writeSoundRegister(u32 address, u32 value, u32 length)
 {
     address -= 0x04000000;
     if (address >= GBA_REG_OFFS_FIFO_A && address <= (GBA_REG_OFFS_FIFO_B + 3))
@@ -136,32 +147,7 @@ void gbas_writeSoundRegister(u32 address, u32 value, u32 length)
 
         for (u32 i = 0; i < length; ++i)
         {
-            if (address == GBA_REG_OFFS_SOUNDCNT_H)
-            {
-                emu_ioRegisters[address] = value;
-            }
-            else if (address == (GBA_REG_OFFS_SOUNDCNT_H + 1))
-            {
-                emu_ioRegisters[address] = value & 0x77;
-
-                if (value & (GBA_SOUNDCNT_H_DIRECT_A_RESET >> 8))
-                {
-                    resetFifo(&gGbaSoundShared.directChannels[0]);
-                }
-
-                if (value & (GBA_SOUNDCNT_H_DIRECT_B_RESET >> 8))
-                {
-                    resetFifo(&gGbaSoundShared.directChannels[1]);
-                }
-            }
-            else if (address >= GBA_REG_OFFS_SOUNDBIAS && address <= (GBA_REG_OFFS_SOUNDBIAS + 3))
-            {
-                emu_ioRegisters[address] = value;
-            }
-            else
-            {
-                writeGbAudioReg(address & 0xFF, value & 0xFF);
-            }
+            writeGbAudioReg((u8)address, (u8)value);
             ++address;
             value >>= 8;
         }
