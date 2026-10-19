@@ -75,6 +75,7 @@ bool sav_tryPatchFunction(const u32* signature, u32 saveSwiNumber, void* patchFu
     return true;
 }
 
+[[gnu::noinline]]
 static void loadSaveClusterMap(void)
 {
     sClusterTable[0] = sizeof(sClusterTable) / sizeof(DWORD);
@@ -82,6 +83,7 @@ static void loadSaveClusterMap(void)
     f_lseek(&gSaveFile, CREATE_LINKMAP);
 }
 
+[[gnu::noinline]]
 static void fillSaveFile(u32 start, u32 end)
 {
     const u8 saveFill = SAVE_DATA_FILL;
