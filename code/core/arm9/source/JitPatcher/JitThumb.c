@@ -12,12 +12,17 @@ static inline void thumbJitNotImplemented()
     asm volatile ("bkpt #0");
 }
 
+/// @brief Patches the Thumb instructions of the block containing ptr so that the
+///        cpu traps into jit_handleThumb* once it reaches a control flow instruction.
+///        Instructions that are not control flow are only marked as processed.
 void jit_processThumbBlock(u16* ptr)
 {
-    void* const blockStart = jit_findBlockStart(ptr);
     void* blockEnd = jit_findBlockEnd(ptr);
     u8* jitBits = jit_getJitBits(ptr);
     u16* jitAuxBits = jit_getJitAuxBits(ptr);
+    // Patched control flow instructions need up to 2 bits of the original
+    // instruction. They are collected here and stored once after the loop.
+    u32 auxBitsToSet = 0;
     do
     {
         u32 bitIdx = ((u32)ptr & 0xF) >> 1;
@@ -36,12 +41,21 @@ void jit_processThumbBlock(u16* ptr)
         {
             // SWI
             u32 swiOp = instruction & 0xFF;
-            if (swiOp == 0)
+            if ((u32)(swiOp - 1) >= 0x7F) // SWI 0 or unhandled BIOS call
                 break;
-            if (swiOp == 0x26)
+            if (swiOp == 0x26) // Halt
                 break;
-            if (swiOp >= 0x80)
-                break;
+        }
+        else if ((instruction & 0xF800) == 0x4800)
+        {
+            // ldr Rd, [pc, #imm]
+            u32 targetAddress = (((u32)ptr + 4) & ~2) + ((instruction & 0xFF) << 2);
+            u32 blockStart = (u32)jit_findBlockStart(ptr);
+            if (targetAddress - blockStart < (u32)blockEnd - blockStart)
+            {
+                // safe pool address needs no patching
+                blockEnd = (void*)targetAddress;
+            }
         }
         else if ((instruction & 0xF000) == 0xD000)
         {
@@ -49,7 +63,7 @@ void jit_processThumbBlock(u16* ptr)
             *ptr = 0b1011100000000000
                 | (((instruction >> 8) & 0xF) << 6) // cond
                 | ((instruction >> 2) & 0x3F); // offs[7:2]
-            *jitAuxBits |= (instruction & 3) << auxBitIdx;
+            auxBitsToSet = (instruction & 3) << auxBitIdx;
             break;
         }
         else if ((instruction & 0xF800) == 0xE000)
@@ -57,7 +71,7 @@ void jit_processThumbBlock(u16* ptr)
             // b
             *ptr = 0b1011001000000000
                 | (instruction & 0x5FF); // off[10] and offs[8:0]
-            *jitAuxBits |= ((instruction >> 9) & 1) << auxBitIdx;
+            auxBitsToSet = ((instruction >> 9) & 1) << auxBitIdx;
             break;
         }
         else if ((instruction & 0xF800) == 0xF800)
@@ -65,14 +79,13 @@ void jit_processThumbBlock(u16* ptr)
             // bl lr+imm
             *ptr = 0b1110100000000001
                 | (instruction & 0x7FE); // offs[10:1]
-            *jitAuxBits |= (instruction & 1) << auxBitIdx;
+            auxBitsToSet = (instruction & 1) << auxBitIdx;
             break;
         }
+        // bx Rm, add pc, Rm, or mov pc, Rm
         else if ((instruction & 0xFF87) == 0x4700
-            || (instruction & 0xFF87) == 0x4487
-            || (instruction & 0xFF87) == 0x4687)
+            || ((instruction & 0xFF87) & ~0x200) == 0x4487) // add/mov only differ in bit 9
         {
-            // bx Rm, add pc, Rm, or mov pc, Rm
             u32 op = instruction & 0xFF87;
             u16 patchOp = op == 0x4700 ? 0b1011000100000000
                 : op == 0x4487 ? 0b1011111100000000
@@ -85,24 +98,17 @@ void jit_processThumbBlock(u16* ptr)
             // pop pc
             *ptr = 0b1011101110000000
                 | ((instruction >> 1) & 0x7F); // rlist[7:1]
-            *jitAuxBits |= (instruction & 1) << auxBitIdx;
+            auxBitsToSet = (instruction & 1) << auxBitIdx;
             break;
         }
-        else if ((instruction & 0xF800) == 0x4800)
-        {
-            // ldr Rd, [pc, #imm]
-            u32 targetAddress = (((u32)ptr + 4) & ~2) + ((instruction & 0xFF) << 2);
-            u32 blockSize = (u32)blockEnd - (u32)blockStart;
-            if (targetAddress - (u32)blockStart < blockSize && targetAddress > (u32)ptr)
-            {
-                // safe pool address needs no patching
-                blockEnd = (void*)targetAddress;
-            }
-        }
-        
+
         if (auxBitIdx == 0xE)
             jitAuxBits++;
     } while ((u32)++ptr < (u32)blockEnd);
+
+    // nothing to store when the scan ended on an instruction without aux bits
+    if (auxBitsToSet)
+        *jitAuxBits |= auxBitsToSet;
 }
 
 [[gnu::section(".itcm")]]
