@@ -359,24 +359,27 @@ ITCM_CODE __attribute__((optimize("Os"))) static void dmaStop(int channel, GbaDm
     }
 }
 
-ITCM_CODE __attribute__((optimize("Os"))) static void dmaStartHBlank(int channel, GbaDmaChannel* dmaIoBase, u32 value)
+ITCM_CODE __attribute__((optimize("Os"), noinline))
+static void dmaStartCommon(int channel, GbaDmaChannel* dmaIoBase, u32 value, u32 flag)
 {
     dmaIoBase->control = value;
-    dma_state.dmaFlags |= DMA_FLAG_HBLANK(channel);
-    vm_forcedIrqMask |= 1 << 1; // hblank irq
-    gfx_setHBlankIrqEnabled(true);
+    dma_state.dmaFlags |= flag;
     dma_state.channels[channel].curSrc = dmaIoBase->src;
     dma_state.channels[channel].curDst = dmaIoBase->dst;
+}
+
+ITCM_CODE __attribute__((optimize("Os"))) static void dmaStartHBlank(int channel, GbaDmaChannel* dmaIoBase, u32 value)
+{
+    dmaStartCommon(channel, dmaIoBase, value, DMA_FLAG_HBLANK(channel));
+    vm_forcedIrqMask |= 1 << 1; // hblank irq
+    gfx_setHBlankIrqEnabled(true);
     emu_hblankDmaSkipInstruction = hblankDmaSkipDuringVblankInstruction;
     emu_hblankDmaJumpInstructions[channel] = hblankDmaJumpInstructions[channel];
 }
 
 ITCM_CODE __attribute__((optimize("Os"))) static void dmaStartVBlank(int channel, GbaDmaChannel* dmaIoBase, u32 value)
 {
-    dmaIoBase->control = value;
-    dma_state.dmaFlags |= DMA_FLAG_VBLANK(channel);
-    dma_state.channels[channel].curSrc = dmaIoBase->src;
-    dma_state.channels[channel].curDst = dmaIoBase->dst;
+    dmaStartCommon(channel, dmaIoBase, value, DMA_FLAG_VBLANK(channel));
     emu_vblankDmaJumpInstruction = vblankDmaJumpInstruction;
     emu_vblankDmaJumpInstructions[channel] = vblankDmaJumpInstructions[channel];
 }
@@ -434,11 +437,8 @@ ITCM_CODE void dma_dmaSound(u32 channel)
 
 ITCM_CODE __attribute__((optimize("Os"))) static void dmaStartSound(int channel, GbaDmaChannel* dmaIoBase, u32 value)
 {
-    dmaIoBase->control = value;
-    dma_state.dmaFlags |= DMA_FLAG_SOUND(channel);
+    dmaStartCommon(channel, dmaIoBase, value, DMA_FLAG_SOUND(channel));
     vm_forcedIrqMask |= 1 << 16; // arm7 irq
-    dma_state.channels[channel].curSrc = dmaIoBase->src;
-    dma_state.channels[channel].curDst = dmaIoBase->dst;
 
     if (channel == 1)
     {
@@ -483,16 +483,13 @@ ITCM_CODE __attribute__((optimize("Os"))) static void dmaStartImmediate(int chan
         srcStep = 1;
     }
     int dstStep = getDstStep(control);
-    if (control & GBA_DMA_CONTROL_32BIT)
-    {
-        sdc_setIrqForbiddenReplacementRange((u32)src, count << 2);
-        dma_immTransfer32(src, dst, count << 2, srcStep, dstStep);
-    }
+    bool dma32 = control & GBA_DMA_CONTROL_32BIT;
+    u32 byteCount = count << (dma32 ? 2 : 1);
+    sdc_setIrqForbiddenReplacementRange((u32)src, byteCount);
+    if (dma32)
+        dma_immTransfer32(src, dst, byteCount, srcStep, dstStep);
     else
-    {
-        sdc_setIrqForbiddenReplacementRange((u32)src, count << 1);
-        dma_immTransfer16(src, dst, count << 1, srcStep, dstStep);
-    }
+        dma_immTransfer16(src, dst, byteCount, srcStep, dstStep);
     sdc_resetIrqForbiddenReplacementRange();
     if (channel == 3)
     {
@@ -508,17 +505,16 @@ ITCM_CODE __attribute__((optimize("Os"), noinline)) static void dmaStart(int cha
     if (control & GBA_DMA_CONTROL_ROM_DREQ)
         return; // rom dreq
     u32 mode = (control >> GBA_DMA_CONTROL_MODE_SHIFT) & GBA_DMA_CONTROL_MODE_MASK;
+    if (mode == GBA_DMA_CONTROL_MODE_IMMEDIATE)
+    {
+        dmaStartImmediate(channel, dmaIoBase, control);
+        return;
+    }
     u32 src = dmaIoBase->src;
-    if (mode != GBA_DMA_CONTROL_MODE_IMMEDIATE
-        && src >= ROM_LINEAR_DS_ADDRESS && src < ROM_LINEAR_END_DS_ADDRESS)
+    if (src >= ROM_LINEAR_DS_ADDRESS && src < ROM_LINEAR_END_DS_ADDRESS)
         return;
     switch (mode)
     {
-        case GBA_DMA_CONTROL_MODE_IMMEDIATE:
-        {
-            dmaStartImmediate(channel, dmaIoBase, control);
-            break;
-        }
         case GBA_DMA_CONTROL_MODE_VBLANK:
         {
             dmaStartVBlank(channel, dmaIoBase, control);

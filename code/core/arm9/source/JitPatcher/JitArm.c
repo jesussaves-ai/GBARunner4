@@ -11,6 +11,25 @@ static void armJitNotImplemented()
     asm volatile ("bkpt #0");
 }
 
+[[gnu::noinline]]
+static u32 armGetShiftedOperand(u32 value, u32 shiftType, u32 shiftAmount)
+{
+    switch (shiftType)
+    {
+        case 0:
+            return value << shiftAmount;
+        case 1:
+            if (shiftAmount != 0)
+                return value >> shiftAmount;
+            break;
+        case 2:
+            if (shiftAmount != 0)
+                return (u32)((int)value >> shiftAmount);
+            break;
+    }
+    armJitNotImplemented();
+}
+
 bool jit_processArmInstruction(u32* ptr)
 {
     u32 instruction = *ptr;
@@ -260,26 +279,7 @@ u32* jit_handleArmUndefined(u32 instruction, u32* instructionPtr, u32* registers
         u32 rm = registers[(instruction >> 5) & 0xF];
         u32 shiftType = (instruction >> 10) & 0x3;
         u32 shiftAmount = (instruction >> 12) & 0x1F;
-        if (shiftType != 0 && shiftAmount == 0)
-        {
-            armJitNotImplemented();
-        }
-        u32 op2;
-        switch (shiftType)
-        {
-            case 0: // lsl
-                op2 = rm << shiftAmount;
-                break;
-            case 1: // lsr
-                op2 = rm >> shiftAmount;
-                break;
-            case 2: // asr
-                op2 = (int)rm >> shiftAmount;
-                break;
-            case 3: // ror
-                armJitNotImplemented();
-                break;
-        }
+        u32 op2 = armGetShiftedOperand(rm, shiftType, shiftAmount);
         u32 branchTarget;
         switch (op)
         {
@@ -373,26 +373,7 @@ u32* jit_handleArmUndefined(u32 instruction, u32* instructionPtr, u32* registers
             u32 rm = registers[(instruction >> 5) & 0xF];
             u32 shiftType = (instruction >> 13) & 0x3;
             u32 shiftAmount = (instruction >> 15) & 0x1F;
-            if (shiftType != 0 && shiftAmount == 0)
-            {
-                armJitNotImplemented();
-            }
-            u32 op2;
-            switch (shiftType)
-            {
-                case 0: // lsl
-                    op2 = rm << shiftAmount;
-                    break;
-                case 1: // lsr
-                    op2 = rm >> shiftAmount;
-                    break;
-                case 2: // asr
-                    op2 = (int)rm >> shiftAmount;
-                    break;
-                case 3: // ror
-                    armJitNotImplemented();
-                    break;
-            }
+            u32 op2 = armGetShiftedOperand(rm, shiftType, shiftAmount);
             u32 address = (rn + op2) & ~3;
             u32 branchDestination;
             if (address >= ROM_LINEAR_DS_ADDRESS && address < ROM_LINEAR_END_DS_ADDRESS)
