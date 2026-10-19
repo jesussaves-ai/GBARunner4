@@ -1531,7 +1531,7 @@ static FRESULT remove_chain (	/* FR_OK(0):succeeded, !=0:error */
 /* FAT handling - Stretch a chain or Create a new chain                  */
 /*-----------------------------------------------------------------------*/
 
-static DWORD create_chain (	/* 0:No free cluster, 1:Internal error, 0xFFFFFFFF:Disk error, >=2:New cluster# */
+static __attribute__((optimize("Os"))) DWORD create_chain (	/* 0:No free cluster, 1:Internal error, 0xFFFFFFFF:Disk error, >=2:New cluster# */
 	FFOBJID* obj,		/* Corresponding object */
 	DWORD clst			/* Cluster# to stretch, 0:Create a new chain */
 )
@@ -1539,20 +1539,23 @@ static DWORD create_chain (	/* 0:No free cluster, 1:Internal error, 0xFFFFFFFF:D
 	DWORD cs, ncl, scl;
 	FRESULT res;
 	FATFS *fs = obj->fs;
+	DWORD n_fatent = fs->n_fatent;
+	DWORD last_clst = fs->last_clst;
+	DWORD free_clst = fs->free_clst;
 
 
 	if (clst == 0) {	/* Create a new chain */
-		scl = fs->last_clst;				/* Suggested cluster to start to find */
-		if (scl == 0 || scl >= fs->n_fatent) scl = 1;
+		scl = last_clst;				/* Suggested cluster to start to find */
+		if (scl == 0 || scl >= n_fatent) scl = 1;
 	}
 	else {				/* Stretch a chain */
 		cs = get_fat(obj, clst);			/* Check the cluster status */
 		if (cs < 2) return 1;				/* Test for insanity */
 		if (cs == 0xFFFFFFFF) return cs;	/* Test for disk error */
-		if (cs < fs->n_fatent) return cs;	/* It is already followed by next cluster */
+		if (cs < n_fatent) return cs;	/* It is already followed by next cluster */
 		scl = clst;							/* Cluster to start to find */
 	}
-	if (fs->free_clst == 0) return 0;		/* No free cluster */
+	if (free_clst == 0) return 0;		/* No free cluster */
 
 #if FF_FS_EXFAT
 	if (fs->fs_type == FS_EXFAT) {	/* On the exFAT volume */
@@ -1581,32 +1584,27 @@ static DWORD create_chain (	/* 0:No free cluster, 1:Internal error, 0xFFFFFFFF:D
 	} else
 #endif
 	{	/* On the FAT/FAT32 volume */
-		ncl = 0;
 		if (scl == clst) {						/* Stretching an existing chain? */
 			ncl = scl + 1;						/* Test if next cluster is free */
-			if (ncl >= fs->n_fatent) ncl = 2;
+			if (ncl >= n_fatent) ncl = 2;
 			cs = get_fat(obj, ncl);				/* Get next cluster status */
 			if (cs == 1 || cs == 0xFFFFFFFF) return cs;	/* Test for error */
-			if (cs != 0) {						/* Not free? */
-				cs = fs->last_clst;				/* Start at suggested cluster if it is valid */
-				if (cs >= 2 && cs < fs->n_fatent) scl = cs;
-				ncl = 0;
-			}
+			if (cs == 0) goto found;			/* Contiguous cluster is free */
+			cs = last_clst;					/* Start at suggested cluster if it is valid */
+			if (cs >= 2 && cs < n_fatent) scl = cs;
 		}
-		if (ncl == 0) {	/* The new cluster cannot be contiguous and find another fragment */
+		{	/* The new cluster cannot be contiguous and find another fragment */
 			ncl = scl;	/* Start cluster */
-			for (;;) {
+			for (DWORD count = n_fatent - 2; count != 0; count--) {
 				ncl++;							/* Next cluster */
-				if (ncl >= fs->n_fatent) {		/* Check wrap-around */
-					ncl = 2;
-					if (ncl > scl) return 0;	/* No free cluster found? */
-				}
+				if (ncl >= n_fatent) ncl = 2;	/* Check wrap-around */
 				cs = get_fat(obj, ncl);			/* Get the cluster status */
-				if (cs == 0) break;				/* Found a free cluster? */
+				if (cs == 0) goto found;		/* Found a free cluster? */
 				if (cs == 1 || cs == 0xFFFFFFFF) return cs;	/* Test for error */
-				if (ncl == scl) return 0;		/* No free cluster found? */
 			}
+			return 0;							/* No free cluster found? */
 		}
+found:
 		res = put_fat(fs, ncl, 0xFFFFFFFF);		/* Mark the new cluster 'EOC' */
 		if (res == FR_OK && clst != 0) {
 			res = put_fat(fs, clst, ncl);		/* Link it from the previous one if needed */
@@ -1615,7 +1613,7 @@ static DWORD create_chain (	/* 0:No free cluster, 1:Internal error, 0xFFFFFFFF:D
 
 	if (res == FR_OK) {			/* Update FSINFO if function succeeded. */
 		fs->last_clst = ncl;
-		if (fs->free_clst <= fs->n_fatent - 2) fs->free_clst--;
+		if (free_clst <= n_fatent - 2) fs->free_clst = free_clst - 1;
 		fs->fsi_flag |= 1;
 	} else {
 		ncl = (res == FR_DISK_ERR) ? 0xFFFFFFFF : 1;	/* Failed. Generate error status */
