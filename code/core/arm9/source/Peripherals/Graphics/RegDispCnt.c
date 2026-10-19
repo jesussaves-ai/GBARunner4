@@ -38,43 +38,37 @@ static void displayModeChange(u32 oldMode, u32 newMode)
             break;
         }
         case 3:
-        {
-            mem_setVramFMapping(MEM_VRAM_FG_MAIN_BG_10000);
-            setVramLoad345();
-            memu_setStore8Handler(6, memu_store8Vram3);
-            memu_setStore16Handler(6, memu_store16Vram3);
-            memu_setStore32Handler(6, memu_store32Vram3);
-            for (u32 i = 0; i < 0x14000; i += 4)
-            {
-                memu_store32FromC(0x06000000 + i, *(vu32*)(0x06000000 + i));
-            }
-            u32 priority = *(u16*)&emu_ioRegisters[GBA_REG_OFFS_BG2CNT] & 3;
-            REG_BG2CNT = 0x5084 | priority;
-            break;
-        }
         case 4:
-        {
-            mem_setVramFMapping(MEM_VRAM_FG_MAIN_BG_10000);
-            setVramLoad345();
-            memu_setStore8Handler(6, memu_store8Vram4);
-            memu_setStore16Handler(6, memu_store16Vram4);
-            memu_setStore32Handler(6, memu_store32Vram4);
-            for (u32 i = 0; i < 0x14000; i += 4)
-            {
-                memu_store32FromC(0x06000000 + i, *(vu32*)(0x06000000 + i));
-            }
-            break;
-        }
         case 5:
         {
             mem_setVramFMapping(MEM_VRAM_FG_MAIN_BG_10000);
             setVramLoad345();
-            memu_setStore8Handler(6, memu_store8Vram5);
-            memu_setStore16Handler(6, memu_store16Vram5);
-            memu_setStore32Handler(6, memu_store32Vram5);
+            switch (newMode)
+            {
+                case 3:
+                    memu_setStore8Handler(6, memu_store8Vram3);
+                    memu_setStore16Handler(6, memu_store16Vram3);
+                    memu_setStore32Handler(6, memu_store32Vram3);
+                    break;
+                case 4:
+                    memu_setStore8Handler(6, memu_store8Vram4);
+                    memu_setStore16Handler(6, memu_store16Vram4);
+                    memu_setStore32Handler(6, memu_store32Vram4);
+                    break;
+                case 5:
+                    memu_setStore8Handler(6, memu_store8Vram5);
+                    memu_setStore16Handler(6, memu_store16Vram5);
+                    memu_setStore32Handler(6, memu_store32Vram5);
+                    break;
+            }
             for (u32 i = 0; i < 0x14000; i += 4)
             {
                 memu_store32FromC(0x06000000 + i, *(vu32*)(0x06000000 + i));
+            }
+            if (newMode == 3)
+            {
+                u32 priority = *(u16*)&emu_ioRegisters[GBA_REG_OFFS_BG2CNT] & 3;
+                REG_BG2CNT = 0x5084 | priority;
             }
             break;
         }
