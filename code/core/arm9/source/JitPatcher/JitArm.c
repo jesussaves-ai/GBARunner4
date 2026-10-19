@@ -12,6 +12,17 @@ static void armJitNotImplemented()
 }
 
 [[gnu::noinline]]
+static void armEncodeAluPc(u32* ptr, u32 instruction, u32 base)
+{
+    *ptr = base
+        | (instruction & 0xF0000000) // cond
+        | ((instruction & 0x01E00000) >> 4) // op
+        | ((instruction & 0x00100000) << 1) // S
+        | ((instruction & 0x000F0000) >> 16) // Rn
+        | ((instruction & 0x00000FFF) << 5); // op2
+}
+
+[[gnu::noinline]]
 static u32 armGetShiftedOperand(u32 value, u32 shiftType, u32 shiftAmount)
 {
     switch (shiftType)
@@ -36,25 +47,10 @@ bool jit_processArmInstruction(u32* ptr)
     if ((instruction & 0x0E000000) == 0x0A000000)
     {
         // B and BL imm
-        if (instruction & 0x01000000)
+        *ptr = (instruction & ~0x0E000000) | 0x0C000000;
+        if ((instruction >> 28) == 0xE)
         {
-            // BL imm
-            *ptr = (instruction & ~0x0E000000) | 0x0C000000;
-            if ((instruction >> 28) == 0xE)
-            {
-                return false;
-            }
-        }
-        else
-        {
-            // B imm
-            // *ptr = (instruction & ~0xFE000000) | 0xEC000000;
-            // *(u32*)(((u32)ptr & ~0x01000000) + 0x00400000) = instruction;
-            *ptr = (instruction & ~0x0E000000) | 0x0C000000;
-            if ((instruction >> 28) == 0xE)
-            {
-                return false;
-            }
+            return false;
         }
     }
     else if ((instruction & 0x0FBF0FFF) == 0x010F0000)
@@ -142,12 +138,7 @@ bool jit_processArmInstruction(u32* ptr)
         else
         {
             // ALU{S} pc, Rn, Rm (imm shift)
-            *ptr = 0x0E000000
-                | (instruction & 0xF0000000) // cond
-                | ((instruction & 0x01E00000) >> 4) // op
-                | ((instruction & 0x00100000) << 1) // S
-                | ((instruction & 0x000F0000) >> 16) // Rn
-                | ((instruction & 0x00000FFF) << 5); // op2
+            armEncodeAluPc(ptr, instruction, 0x0E000000);
         }
         if ((instruction >> 28) == 0xE)
         {
@@ -166,12 +157,7 @@ bool jit_processArmInstruction(u32* ptr)
     else if ((instruction & 0x0E00F000) == 0x0200F000)
     {
         // ALU{S} pc, Rn, #imm
-        *ptr = 0x0E400000
-            | (instruction & 0xF0000000) // cond
-            | ((instruction & 0x01E00000) >> 4) // op
-            | ((instruction & 0x00100000) << 1) // S
-            | ((instruction & 0x000F0000) >> 16) // Rn
-            | ((instruction & 0x00000FFF) << 5); // op2
+        armEncodeAluPc(ptr, instruction, 0x0E400000);
         if ((instruction >> 28) == 0xE)
         {
             return false;
