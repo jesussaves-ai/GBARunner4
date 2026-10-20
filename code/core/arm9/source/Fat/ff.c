@@ -1258,40 +1258,38 @@ static FRESULT put_fat (	/* FR_OK(0):succeeded, !=0:error */
 
 
 	if (clst >= 2 && clst < fs->n_fatent) {	/* Check if in valid range */
-		switch (fs->fs_type) {
-		case FS_FAT12 :
+		if (fs->fs_type == FS_FAT12) {	/* FAT12: 12-bit entry crossing two bytes */
+			UINT sh;
+			val &= 0x0FFF; sh = (clst & 1) ? 4 : 0;
 			bc = (UINT)clst; bc += bc / 2;	/* bc: byte offset of the entry */
 			res = move_window(fs, fs->fatbase + (bc / SS(fs)));
-			if (res != FR_OK) break;
+			if (res != FR_OK) return res;
 			p = fs->win + bc++ % SS(fs);
-			*p = (clst & 1) ? ((*p & 0x0F) | ((BYTE)val << 4)) : (BYTE)val;		/* Put 1st byte */
+			*p = (BYTE)((*p & ((clst & 1) ? 0x0F : 0)) | (val << sh));	/* Put 1st byte */
 			fs->wflag = 1;
 			res = move_window(fs, fs->fatbase + (bc / SS(fs)));
-			if (res != FR_OK) break;
+			if (res != FR_OK) return res;
 			p = fs->win + bc % SS(fs);
-			*p = (clst & 1) ? (BYTE)(val >> 4) : ((*p & 0xF0) | ((BYTE)(val >> 8) & 0x0F));	/* Put 2nd byte */
+			*p = (BYTE)((*p & ((clst & 1) ? 0 : 0xF0)) | (val >> (8 - sh)));	/* Put 2nd byte */
 			fs->wflag = 1;
-			break;
-
-		case FS_FAT16 :
-			res = move_window(fs, fs->fatbase + (clst / (SS(fs) / 2)));
-			if (res != FR_OK) break;
-			st_word(fs->win + clst * 2 % SS(fs), (WORD)val);	/* Simple WORD array */
-			fs->wflag = 1;
-			break;
-
-		case FS_FAT32 :
+		} else if (fs->fs_type == FS_FAT16 || fs->fs_type == FS_FAT32
 #if FF_FS_EXFAT
-		case FS_EXFAT :
+			|| fs->fs_type == FS_EXFAT
 #endif
-			res = move_window(fs, fs->fatbase + (clst / (SS(fs) / 4)));
-			if (res != FR_OK) break;
-			if (!FF_FS_EXFAT || fs->fs_type != FS_EXFAT) {
-				val = (val & 0x0FFFFFFF) | (ld_dword(fs->win + clst * 4 % SS(fs)) & 0xF0000000);
+		) {	/* FAT16/FAT32: 2/4-byte entry in the current sector */
+			UINT n = (fs->fs_type == FS_FAT16) ? 2 : 4;
+			if (n == 4 && (!FF_FS_EXFAT || fs->fs_type != FS_EXFAT)) val &= 0x0FFFFFFF;
+			bc = (UINT)clst * n;
+			res = move_window(fs, fs->fatbase + (bc / SS(fs)));
+			if (res != FR_OK) return res;
+			p = fs->win + bc % SS(fs);
+			if (n == 4 && (!FF_FS_EXFAT || fs->fs_type != FS_EXFAT)) {
+				val |= ld_dword(p) & 0xF0000000;	/* Keep the top 4 reserved bits */
 			}
-			st_dword(fs->win + clst * 4 % SS(fs), val);
+			do {
+				*p++ = (BYTE)val; val >>= 8;
+			} while (--n);
 			fs->wflag = 1;
-			break;
 		}
 	}
 	return res;
