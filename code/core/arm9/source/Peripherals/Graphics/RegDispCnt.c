@@ -35,6 +35,15 @@ static void displayModeChange(u32 oldMode, u32 newMode)
             memu_setStore16Handler(6, memu_store16Vram012);
             memu_setStore32Handler(6, memu_store32Vram012);
             REG_BG2CNT = *(u16*)&emu_ioRegisters[GBA_REG_OFFS_BG2CNT] & ~0x30;
+            // Bitmap modes (3-5) reuse the same BG2PA..PD / BG2X/Y registers as
+            // the DS bitmap transform, so re-apply the guest's affine matrix and
+            // 28-bit reference point when returning to a tile/affine mode.
+            REG_BG2PA = *(s16*)&emu_ioRegisters[GBA_REG_OFFS_BG2PA];
+            REG_BG2PB = *(s16*)&emu_ioRegisters[GBA_REG_OFFS_BG2PB];
+            REG_BG2PC = *(s16*)&emu_ioRegisters[GBA_REG_OFFS_BG2PC];
+            REG_BG2PD = *(s16*)&emu_ioRegisters[GBA_REG_OFFS_BG2PD];
+            REG_BG2X = *(s32*)&emu_ioRegisters[GBA_REG_OFFS_BG2X];
+            REG_BG2Y = *(s32*)&emu_ioRegisters[GBA_REG_OFFS_BG2Y];
             break;
         }
         case 3:

@@ -12,20 +12,53 @@ static gbas_direct_channel7_t sDirectChannels[2];
 static u16 sSoundCntH;
 static bool sPaused;
 
+// Upper bound on the GBA direct-sound timer overflows consumed for one DS output
+// sample. Direct sound normally runs at or below 2x the DS rate (2 overflows);
+// anything beyond this is a timer reload/control change or a stall and is
+// clamped so the mixer cannot dump a whole buffer (or hold a stale sample) in a
+// single step.
+#define GBAS_MAX_OVERFLOWS_PER_SAMPLE 4
+
 static s8 updateDirectChannel(gbas_direct_channel_t* channel, gbas_direct_channel7_t* channel7, u32 timerOverflows)
 {
     u32 samples = channel7->curPlaySamples;
-    // no overflows, or too many overflows
-    if (timerOverflows == 0 || timerOverflows > 10)
+    // A SOUNDCNT_H reset strobe cleared this FIFO: drop the stale playback word
+    // so the new stream starts on its own first sample instead of the tail of
+    // the previous one.
+    if (channel->fifoReset)
+    {
+        channel->fifoReset = false;
+        channel7->curPlaySampleCount = 0;
+        channel7->curPlaySamples = 0;
+        samples = 0;
+    }
+    // Nothing elapsed for this DS sample: sample-and-hold is correct.
+    if (timerOverflows == 0)
     {
         return (s8)samples;
+    }
+
+    // Safety clamp: a Timer 0/1 reload or enable/disable that changes rapidly
+    // (high-activity sound effects retriggering the direct-sound timer) or a
+    // scheduler stall can make the GBA timer model report an implausible number
+    // of overflows for one DS sample. Previously this step was dropped, which
+    // held the last sample (a pop) and let the FIFO drain (an underrun). Clamp
+    // the catch-up instead so the stream keeps advancing smoothly and the FIFO
+    // cannot be emptied in a single step.
+    if (timerOverflows > GBAS_MAX_OVERFLOWS_PER_SAMPLE)
+    {
+        timerOverflows = GBAS_MAX_OVERFLOWS_PER_SAMPLE;
     }
 
     for (u32 i = timerOverflows; i > 0; --i)
     {
         u32 readOffset = channel->readOffset;
-        u32 fifoCount = (channel->writeOffset - readOffset) & 31;
-        if (fifoCount <= 27 && !channel->dmaRequest)
+        u32 fifoCount = (channel->writeOffset - readOffset) & GBAS_DIRECT_FIFO_MASK;
+        // Issue a request once at least 4 words are free so the 4-word sound DMA
+        // burst always fits, exactly like the GBA FIFO's half-empty request
+        // point. The same check also fires on an empty FIFO, so an underrun
+        // always re-arms a refill request.
+        if (!(fifoCount & 4) && !channel->dmaRequest)
         {
             channel->dmaRequest = true;
             ipc_triggerArm7Irq();
@@ -39,7 +72,7 @@ static s8 updateDirectChannel(gbas_direct_channel_t* channel, gbas_direct_channe
         {
             samples = channel->fifo[readOffset];
             channel7->curPlaySampleCount = 3;
-            channel->readOffset = (readOffset + 1) & 31;
+            channel->readOffset = (readOffset + 1) & GBAS_DIRECT_FIFO_MASK;
         }
     }
     channel7->curPlaySamples = samples;

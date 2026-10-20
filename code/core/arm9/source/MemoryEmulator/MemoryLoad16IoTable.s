@@ -11,6 +11,13 @@
         .short emu_regDispStatLoad16
     .elseif (\index << 1) == GBA_REG_OFFS_VCOUNT
         .short emu_regVCountLoad16
+    .elseif (((\index << 1) >= GBA_REG_OFFS_BG2PA) && ((\index << 1) <= GBA_REG_OFFS_BG3Y_H))
+        // BG2/BG3 affine matrix and 28-bit reference point registers. The GBA
+        // declares them write-only, but real games (mode 7 style camera code)
+        // often read them back to accumulate coordinates. Return the shadowed
+        // value the guest last wrote instead of open-bus garbage, otherwise the
+        // recovered camera position loses precision and the affine layer tears.
+        .short emu_ioFallbackLoad16
     .elseif ((\index << 1) >= GBA_REG_OFFS_BG0HOFS) && ((\index << 1) <= GBA_REG_OFFS_WIN1V)
         .short memu_load16Undefined
     .elseif (\index << 1) == GBA_REG_OFFS_MOSAIC

@@ -9,6 +9,11 @@
         .short emu_ioFallbackLoad32
     .elseif (\index << 2) == GBA_REG_OFFS_DISPSTAT
         .short emu_regDispStatVCountLoad32 // REG_DISPSTAT and REG_VCOUNT
+    .elseif (((\index << 2) >= GBA_REG_OFFS_BG2PA) && ((\index << 2) <= GBA_REG_OFFS_BG3Y))
+        // BG2/BG3 affine matrix pairs and 32-bit reference points. Read them
+        // back from the shadow so mode 7 style camera code that reloads the
+        // current coordinates keeps full 28-bit precision.
+        .short emu_ioFallbackLoad32
     .elseif ((\index << 2) >= GBA_REG_OFFS_BG0HOFS) && ((\index << 2) <= GBA_REG_OFFS_WIN1V)
         .short memu_load32Undefined
     .elseif (\index << 2) == GBA_REG_OFFS_MOSAIC

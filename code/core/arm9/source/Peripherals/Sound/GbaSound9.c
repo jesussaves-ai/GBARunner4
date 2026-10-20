@@ -31,6 +31,9 @@ static void resetFifo(gbas_direct_channel_t* channel)
 {
     // readOffset and writeOffset are adjacent, so clear both with one store.
     *(volatile u32Alias*)&channel->readOffset = 0;
+    // Tell the ARM7 to drop the tail of the previous stream that is still cached
+    // in its playback word, so restarting direct sound does not click.
+    channel->fifoReset = true;
 }
 
 static void writeFifo32(gbas_direct_channel_t* channel, u32 val, u32 mask)
@@ -40,7 +43,7 @@ static void writeFifo32(gbas_direct_channel_t* channel, u32 val, u32 mask)
     old &= ~mask;
     old |= val & mask;
     channel->fifo[writeOffset] = old;
-    channel->writeOffset = (writeOffset + 1) & 31;
+    channel->writeOffset = (writeOffset + 1) & GBAS_DIRECT_FIFO_MASK;
 }
 
 // Registers in 0x80..0x8F that are written even while the master enable is off.
