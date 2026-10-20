@@ -44,6 +44,6 @@ bool HarvestMoonPatches::TryApplyPatches(u32 gameCode)
             return false;
         }
     }
-    *(u32*)sdc_loadRomBlockForPatching(patchAddress) = 0xE35E0000; // cmp lr, #0
+    sdc_patchRom(patchAddress, 0xE35E0000, 4); // cmp lr, #0
     return true;
 }

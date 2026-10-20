@@ -150,5 +150,4 @@ arm_func memu_store32Sram
     cmp r9, r11
         bxeq lr
     str r9, [r10]
-    bl markSaveDirty
-    bx lr
+    b markSaveDirty

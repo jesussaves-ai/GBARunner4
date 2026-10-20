@@ -37,86 +37,15 @@ extern FIL gFile;
 void sav_patchRomFunction(u32 gbaAddress, u32 swiNumber)
 {
     gbaAddress &= ~1u;
-    if (gbaAddress >= ROM_LINEAR_GBA_ADDRESS && gbaAddress < ROM_LINEAR_END_GBA_ADDRESS)
-    {
-        *(u16*)(gbaAddress - ROM_LINEAR_GBA_ADDRESS + ROM_LINEAR_DS_ADDRESS) = SAVE_THUMB_SWI(swiNumber);
-    }
-    else
-    {
-        *(u16*)sdc_loadRomBlockForPatching(gbaAddress) = SAVE_THUMB_SWI(swiNumber);
-    }
+    sdc_patchRom(gbaAddress, SAVE_THUMB_SWI(swiNumber), 2);
 }
-
-#ifdef GBAR3_HICODE_CACHE_MAPPING
-
-/// @brief Searches the paged high rom for a signature.
-/// @return The GBA address of the first match, or 0 when not found.
-static u32 searchHiCode(const u32* signature, u32 romStart, u32 romEnd)
-{
-    // A 16 byte signature that starts in the last 12 bytes of a 4 KB rom block
-    // straddles into the next block. Each block is searched on its own, so such a
-    // signature would be missed; carry the previous block's tail to also test the
-    // three boundary positions.
-    u32 prevTail[4];
-    u32 prevTailStart = 0;
-    bool hasPrev = false;
-    for (u32 i = romStart; i < romEnd; i += SDC_BLOCK_SIZE)
-    {
-        const u32* block = (const u32*)sdc_getRomBlock(i);
-        u32* function = (u32*)mem_fastSearch16((const u32*)block, SDC_BLOCK_SIZE, signature);
-        if (function)
-        {
-            return i + (u32)function - (u32)block;
-        }
-
-        if (hasPrev)
-        {
-            for (u32 j = 1; j <= 3; ++j)
-            {
-                const u32 copyFromPrev = 16 - j * 4;
-                u32 combined[4];
-                memcpy(combined, (const u8*)prevTail + j * 4, copyFromPrev);
-                memcpy((u8*)combined + copyFromPrev, block, j * 4);
-                if (combined[0] == signature[0] && combined[1] == signature[1] &&
-                    combined[2] == signature[2] && combined[3] == signature[3])
-                {
-                    return prevTailStart + j * 4;
-                }
-            }
-        }
-
-        memcpy(prevTail, (const u8*)block + (SDC_BLOCK_SIZE - 16), 16);
-        prevTailStart = i + SDC_BLOCK_SIZE - 16;
-        hasPrev = true;
-    }
-
-    return 0;
-}
-
-#endif
 
 bool sav_tryPatchFunction(const u32* signature, u32 saveSwiNumber, void* patchFunction)
 {
-    // Locate the function's GBA address so the patch can be routed through the
-    // high-rom safe helper below. EEPROM and SRAM functions are patched through
-    // this path too, so neither has (nor may add) a linear-only 2 MB limit.
-    u32 gbaAddress = 0;
-    u32* function = (u32*)mem_fastSearch16((const u32*)ROM_LINEAR_DS_ADDRESS, ROM_LINEAR_SIZE, signature);
-    if (function)
-    {
-        gbaAddress = (u32)function - ROM_LINEAR_DS_ADDRESS + ROM_LINEAR_GBA_ADDRESS;
-    }
-#ifdef GBAR3_HICODE_CACHE_MAPPING
-    if (!gbaAddress && ROM_LINEAR_GBA_ADDRESS > 0x08000000)
-    {
-        gbaAddress = searchHiCode(signature, 0x08000000, ROM_LINEAR_GBA_ADDRESS);
-    }
-    if (!gbaAddress)
-    {
-        u32 romSize = f_size(&gFile);
-        gbaAddress = searchHiCode(signature, ROM_LINEAR_END_GBA_ADDRESS, 0x08000000 + romSize);
-    }
-#endif
+    // Search the whole rom (linear window + paged high rom) so EEPROM, SRAM and
+    // flash functions above the 2 MB ROM_LINEAR_SIZE window are patched in place
+    // instead of being mistaken for the linearly mapped copy.
+    u32 gbaAddress = sdc_searchRomSignature(signature);
     if (!gbaAddress)
     {
         return false;

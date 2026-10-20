@@ -45,11 +45,7 @@ void SelfModifyingPatches::PatchSelfModifyingWrite(u32 gbaAddress)
     u32 patchInstruction = ARM_PATCH_SWI(patch_addSwiPatch(patchCode));
     patchInstruction &= ~(0xF << 28);
     patchInstruction |= condition;
-    if (gbaAddress >= ROM_LINEAR_GBA_ADDRESS && gbaAddress < ROM_LINEAR_END_GBA_ADDRESS)
-    {
-        *(u32*)(gbaAddress - ROM_LINEAR_GBA_ADDRESS + ROM_LINEAR_DS_ADDRESS) = patchInstruction;
-    }
-    *instructionPtr = patchInstruction;
+    sdc_patchRom(gbaAddress, patchInstruction, 4);
 }
 
 bool SelfModifyingPatches::ModifyStr(u32& instruction)

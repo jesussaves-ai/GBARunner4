@@ -130,7 +130,19 @@ arm_func memu_store16Oam
     bx lr
 
 arm_func memu_store16Rom
-    bx lr
+    // GBA cart GPIO/RTC registers live at 0x080000C4..0x080000C8. Route those
+    // stores to the bridge so the game's RTC/GPIO polling sees its own writes
+    // instead of having them silently dropped. Every other rom store is a no-op.
+    bic r10, r8, #0xFE000000
+    sub r10, r10, #0xC4
+    cmp r10, #(0xC8 - 0xC4)
+        bxhi lr // not rom gpio
+
+    push {r0-r3,lr}
+    mov r0, r10 // offset
+    mov r1, r9 // value
+    bl rio_write
+    pop {r0-r3,pc}
 
 arm_func memu_store16Sram
     tst r8, #1
@@ -143,5 +155,4 @@ arm_func memu_store16Sram
     cmp r9, r11
         bxeq lr
     strh r9, [r10]
-    bl markSaveDirty
-    bx lr
+    b markSaveDirty
