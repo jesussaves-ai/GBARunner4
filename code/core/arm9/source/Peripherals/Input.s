@@ -5,21 +5,16 @@
 
 arm_func emu_regKeyInputLoad16
     ldrh r9, [r8]
-    ldr r10,= emu_inputTurboMask
-    ldrh r10, [r10]
-    bic r9, r9, r10 // force mapped buttons pressed
-    orr r9, r9, #0xFC00 // GBA-unused high bits always read as released
-    bx lr
+    b emu_mapKeyInput
 
 arm_func emu_regKeyInputKeyControlLoad32
     ldr r11,= (emu_ioRegisters + 2)
     sub r10, r8, #0x04000000
     ldrh r10, [r11, r10] // key control
     ldrh r9, [r8]
-    ldr r12,= emu_inputTurboMask
-    ldrh r12, [r12]
-    bic r9, r9, r12 // force mapped buttons pressed
-    orr r9, r9, #0xFC00 // GBA-unused high bits always read as released
+    push {r10, lr}
+    bl emu_mapKeyInput
+    pop {r10, lr}
     orr r9, r9, r10, lsl #16
     bx lr
 
@@ -49,7 +44,3 @@ arm_func emu_regKeyControlStore16
 .global emu_inputTurboPhase
 emu_inputTurboPhase:
     .word 0
-
-.global emu_inputTurboMask
-emu_inputTurboMask:
-    .hword 0

@@ -3,29 +3,31 @@
 
 #include "AsmMacros.inc"
 
+/// @brief Applies the custom turbo mapping to an active-low key input value.
+/// @param r9 Raw key input (1 = released, 0 = pressed).
+/// @return r9 Key input with held X/Y mapped to turbo A/B.
+/// @note Clobbers r11 and r12.
+arm_func emu_mapKeyInput
+    mov r12, r9
+    mvn r12, r12 // held buttons now read as 1
+    and r12, r12, #0xC00 // X = bit 10, Y = bit 11
+    mov r12, r12, lsr #10 // X/Y -> A/B bits
+    orr r9, r9, #0xFC00 // GBA-unused high bits always read as released
+
+    ldr r11,= emu_inputTurboPhase
+    ldr r11, [r11]
+    tst r11, #1
+    bxne lr // turbo inactive on this frame
+
+    bic r9, r9, r12 // only held X/Y force turbo A/B low
+    bx lr
+
 arm_func emu_vblankIrq
     // Advance the turbo A/B phase once per frame (DS X/Y map to A/B).
     ldr r13,= emu_inputTurboPhase
     ldr lr, [r13]
     eor lr, lr, #1
     str lr, [r13]
-
-    // Build the active-low mask of buttons to force pressed this frame.
-    mov r13, #0
-    tst lr, #1
-        bne storeTurboMask
-    mov r13, #0x04000000
-    add r13, r13, #0x100
-    ldrh r13, [r13, #0x30] // REG_KEYINPUT
-    mov lr, #0
-    tst r13, #(1 << 10) // X
-        orreq lr, lr, #(1 << 0) // turbo A
-    tst r13, #(1 << 11) // Y
-        orreq lr, lr, #(1 << 1) // turbo B
-    mov r13, lr
-storeTurboMask:
-    ldr lr,= emu_inputTurboMask
-    strh r13, [lr]
 
     // For center and mask display capture has to be enabled every frame
     // and the buffers need to be swapped
