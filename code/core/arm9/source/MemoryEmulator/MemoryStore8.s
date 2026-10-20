@@ -115,10 +115,19 @@ arm_func memu_store8Sram
     mov r11, r8, lsl #17
     ldrb r11, [r10, r11, lsr #17]!
     and r9, r9, #0xFF
-    ldr r12,= gGbaSaveShared
     cmp r9, r11
         bxeq lr
     strb r9, [r10]
+    bl markSaveDirty
+    bx lr
+
+/// @brief Marks the GBA save as dirty, drains the write buffer and enables the
+///        vblank save check by patching emu_vblankIrqSkipSaveCheckInstruction.
+/// @param r0-r10 Preserved.
+/// @param r11-r12 Trashed.
+/// @param lr Return address.
+arm_func markSaveDirty
+    ldr r12,= gGbaSaveShared
     mov r11, #1 // GBA_SAVE_STATE_DIRTY
     strb r11, [r12]
     mov r11, #0

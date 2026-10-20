@@ -8,7 +8,7 @@ typedef struct
 
 typedef struct
 {
-    u32 fifo[8];
+    u32 fifo[32];
     volatile u16 readOffset;
     volatile u16 writeOffset;
 
