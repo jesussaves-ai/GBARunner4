@@ -7,6 +7,9 @@
 #include "MemFastSearch.h"
 #include "SaveSwi.h"
 #include "SaveTypeInfo.h"
+#include "SaveEeprom.h"
+#include "SaveFlash.h"
+#include "SaveSram.h"
 #include "VirtualMachine/VMNestedIrq.h"
 #include "MemoryEmulator/RomDefs.h"
 #include "SdCache/SdCache.h"
@@ -31,9 +34,24 @@ static u32 sSkipSaveCheckInstruction;
 // temporarily
 extern FIL gFile;
 
+void sav_patchRomFunction(u32 gbaAddress, u32 swiNumber)
+{
+    gbaAddress &= ~1u;
+    if (gbaAddress >= ROM_LINEAR_GBA_ADDRESS && gbaAddress < ROM_LINEAR_END_GBA_ADDRESS)
+    {
+        *(u16*)(gbaAddress - ROM_LINEAR_GBA_ADDRESS + ROM_LINEAR_DS_ADDRESS) = SAVE_THUMB_SWI(swiNumber);
+    }
+    else
+    {
+        *(u16*)sdc_loadRomBlockForPatching(gbaAddress) = SAVE_THUMB_SWI(swiNumber);
+    }
+}
+
 #ifdef GBAR3_HICODE_CACHE_MAPPING
 
-static u32* searchHiCode(const u32* signature, u32 romStart, u32 romEnd)
+/// @brief Searches the paged high rom for a signature.
+/// @return The GBA address of the first match, or 0 when not found.
+static u32 searchHiCode(const u32* signature, u32 romStart, u32 romEnd)
 {
     // A 16 byte signature that starts in the last 12 bytes of a 4 KB rom block
     // straddles into the next block. Each block is searched on its own, so such a
@@ -48,7 +66,7 @@ static u32* searchHiCode(const u32* signature, u32 romStart, u32 romEnd)
         u32* function = (u32*)mem_fastSearch16((const u32*)block, SDC_BLOCK_SIZE, signature);
         if (function)
         {
-            return (u32*)sdc_loadRomBlockForPatching(i + (u32)function - (u32)block);
+            return i + (u32)function - (u32)block;
         }
 
         if (hasPrev)
@@ -62,7 +80,7 @@ static u32* searchHiCode(const u32* signature, u32 romStart, u32 romEnd)
                 if (combined[0] == signature[0] && combined[1] == signature[1] &&
                     combined[2] == signature[2] && combined[3] == signature[3])
                 {
-                    return (u32*)sdc_loadRomBlockForPatching(prevTailStart + j * 4);
+                    return prevTailStart + j * 4;
                 }
             }
         }
@@ -72,32 +90,40 @@ static u32* searchHiCode(const u32* signature, u32 romStart, u32 romEnd)
         hasPrev = true;
     }
 
-    return nullptr;
+    return 0;
 }
 
 #endif
 
 bool sav_tryPatchFunction(const u32* signature, u32 saveSwiNumber, void* patchFunction)
 {
+    // Locate the function's GBA address so the patch can be routed through the
+    // high-rom safe helper below. EEPROM and SRAM functions are patched through
+    // this path too, so neither has (nor may add) a linear-only 2 MB limit.
+    u32 gbaAddress = 0;
     u32* function = (u32*)mem_fastSearch16((const u32*)ROM_LINEAR_DS_ADDRESS, ROM_LINEAR_SIZE, signature);
-#ifdef GBAR3_HICODE_CACHE_MAPPING
-    if (!function && ROM_LINEAR_GBA_ADDRESS > 0x08000000)
+    if (function)
     {
-        function = searchHiCode(signature, 0x08000000, ROM_LINEAR_GBA_ADDRESS);
+        gbaAddress = (u32)function - ROM_LINEAR_DS_ADDRESS + ROM_LINEAR_GBA_ADDRESS;
     }
-    if (!function)
+#ifdef GBAR3_HICODE_CACHE_MAPPING
+    if (!gbaAddress && ROM_LINEAR_GBA_ADDRESS > 0x08000000)
+    {
+        gbaAddress = searchHiCode(signature, 0x08000000, ROM_LINEAR_GBA_ADDRESS);
+    }
+    if (!gbaAddress)
     {
         u32 romSize = f_size(&gFile);
-        function = searchHiCode(signature, ROM_LINEAR_END_GBA_ADDRESS, 0x08000000 + romSize);
+        gbaAddress = searchHiCode(signature, ROM_LINEAR_END_GBA_ADDRESS, 0x08000000 + romSize);
     }
 #endif
-    if (!function)
+    if (!gbaAddress)
     {
         return false;
     }
 
     sav_swiTable[saveSwiNumber] = patchFunction;
-    *(u16*)function = SAVE_THUMB_SWI(saveSwiNumber);
+    sav_patchRomFunction(gbaAddress, saveSwiNumber);
     return true;
 }
 
@@ -248,4 +274,157 @@ extern "C" void sav_writeSaveToFile(void)
 
     gGbaSaveShared.saveState = GBA_SAVE_STATE_CLEAN;
     emu_vblankIrqSkipSaveCheckInstruction = sSkipSaveCheckInstruction;
+}
+
+namespace
+{
+/// @brief A per-game save type override for titles whose SDK save tag is
+///        missing or ambiguous (e.g. 4K/64K EEPROM games and Classic NES).
+struct GameIdSaveOverride
+{
+    u32 gameCode;
+    u16 type;
+    u32 size;
+};
+
+/// @brief Maps a save type to its SDK patch function.
+bool (*getSavePatchFunction(u16 type))(const SaveTypeInfo*, FIL*, u32, u8*)
+{
+    switch (type)
+    {
+        case SAVE_TYPE_EEPROM_V111: return eeprom_patchV111;
+        case SAVE_TYPE_EEPROM_V120:
+        case SAVE_TYPE_EEPROM_V121:
+        case SAVE_TYPE_EEPROM_V122: return eeprom_patchV120;
+        case SAVE_TYPE_EEPROM_V124:
+        case SAVE_TYPE_EEPROM_V125: return eeprom_patchV124;
+        case SAVE_TYPE_EEPROM_V126: return eeprom_patchV126;
+        case SAVE_TYPE_FLASH_V120:
+        case SAVE_TYPE_FLASH_V121: return flash_patchV120;
+        case SAVE_TYPE_FLASH_V123:
+        case SAVE_TYPE_FLASH_V124:
+        case SAVE_TYPE_FLASH_V125: return flash_patchV123;
+        case SAVE_TYPE_FLASH_V126: return flash_patchV126;
+        case SAVE_TYPE_FLASH512_V130:
+        case SAVE_TYPE_FLASH512_V131:
+        case SAVE_TYPE_FLASH512_V133: return flash_patch512V130;
+        case SAVE_TYPE_FLASH1M_V102: return flash_patch1MV102;
+        case SAVE_TYPE_FLASH1M_V103: return flash_patch1MV103;
+        case SAVE_TYPE_SRAM_V110: return sram_patchV110;
+        case SAVE_TYPE_SRAM_V111:
+        case SAVE_TYPE_SRAM_V112:
+        case SAVE_TYPE_SRAM_V113: return sram_patchV111;
+        default: return nullptr;
+    }
+}
+}
+
+// Encodes the four character game code from the rom header (stored little
+// endian at 0xAC) into the u32 used by the override table.
+#define GAME_ID(a, b, c, d) \
+    ((u32)(a) | ((u32)(b) << 8) | ((u32)(c) << 16) | ((u32)(d) << 24))
+
+/// @brief Compact game id override table. Kept in .rodata so it never consumes
+///        the scarce ITCM. The save types and sizes are derived from the mGBA
+///        cartridge override list, which is the community reference for titles
+///        whose SDK save tags are missing or ambiguous.
+[[gnu::section(".rodata")]]
+static const GameIdSaveOverride sGameIdSaveOverrides[] =
+{
+    // 64 Kbit (8 KB) EEPROM titles.
+    {GAME_ID('U','3','I','J'), SAVE_TYPE_EEPROM_V124, 8 * 1024}, // Boktai
+    {GAME_ID('U','3','I','E'), SAVE_TYPE_EEPROM_V124, 8 * 1024},
+    {GAME_ID('U','3','I','P'), SAVE_TYPE_EEPROM_V124, 8 * 1024},
+    {GAME_ID('U','3','2','J'), SAVE_TYPE_EEPROM_V124, 8 * 1024}, // Boktai 2
+    {GAME_ID('U','3','2','E'), SAVE_TYPE_EEPROM_V124, 8 * 1024},
+    {GAME_ID('U','3','2','P'), SAVE_TYPE_EEPROM_V124, 8 * 1024},
+    {GAME_ID('U','3','3','J'), SAVE_TYPE_EEPROM_V124, 8 * 1024}, // Shin Bokura no Taiyou
+    {GAME_ID('A','C','8','J'), SAVE_TYPE_EEPROM_V124, 8 * 1024}, // Crash Bandicoot 2
+    {GAME_ID('A','C','8','E'), SAVE_TYPE_EEPROM_V124, 8 * 1024},
+    {GAME_ID('A','C','8','P'), SAVE_TYPE_EEPROM_V124, 8 * 1024},
+    {GAME_ID('B','D','K','J'), SAVE_TYPE_EEPROM_V124, 8 * 1024}, // DigiCommunication Nyo
+    {GAME_ID('A','L','G','P'), SAVE_TYPE_EEPROM_V124, 8 * 1024}, // Dragon Ball Z: LoG
+    {GAME_ID('A','L','F','J'), SAVE_TYPE_EEPROM_V124, 8 * 1024}, // Dragon Ball Z: LoG II
+    {GAME_ID('A','L','F','E'), SAVE_TYPE_EEPROM_V124, 8 * 1024},
+    {GAME_ID('A','L','F','P'), SAVE_TYPE_EEPROM_V124, 8 * 1024},
+    {GAME_ID('B','D','B','E'), SAVE_TYPE_EEPROM_V124, 8 * 1024}, // Dragon Ball Z: Taiketsu
+    {GAME_ID('B','D','B','P'), SAVE_TYPE_EEPROM_V124, 8 * 1024},
+    {GAME_ID('K','H','P','J'), SAVE_TYPE_EEPROM_V124, 8 * 1024}, // Koro Koro Puzzle
+    {GAME_ID('B','S','M','E'), SAVE_TYPE_EEPROM_V124, 8 * 1024}, // Metal Slug Advance
+    {GAME_ID('A','R','8','E'), SAVE_TYPE_EEPROM_V124, 8 * 1024}, // Rocky
+    {GAME_ID('A','R','O','P'), SAVE_TYPE_EEPROM_V124, 8 * 1024},
+    {GAME_ID('A','A','2','J'), SAVE_TYPE_EEPROM_V124, 8 * 1024}, // Super Mario Advance 2
+    {GAME_ID('A','A','2','E'), SAVE_TYPE_EEPROM_V124, 8 * 1024},
+    {GAME_ID('A','A','2','P'), SAVE_TYPE_EEPROM_V124, 8 * 1024},
+    {GAME_ID('A','3','A','J'), SAVE_TYPE_EEPROM_V124, 8 * 1024}, // Super Mario Advance 3
+    {GAME_ID('A','3','A','E'), SAVE_TYPE_EEPROM_V124, 8 * 1024},
+    {GAME_ID('A','3','A','P'), SAVE_TYPE_EEPROM_V124, 8 * 1024},
+    {GAME_ID('A','L','U','E'), SAVE_TYPE_EEPROM_V124, 8 * 1024}, // Super Monkey Ball Jr.
+    {GAME_ID('A','L','U','P'), SAVE_TYPE_EEPROM_V124, 8 * 1024},
+    {GAME_ID('B','U','H','J'), SAVE_TYPE_EEPROM_V124, 8 * 1024}, // Ueki no Housoku
+    {GAME_ID('K','Y','G','J'), SAVE_TYPE_EEPROM_V124, 8 * 1024}, // Yoshi's Universal Gravitation
+    {GAME_ID('K','Y','G','E'), SAVE_TYPE_EEPROM_V124, 8 * 1024},
+    {GAME_ID('K','Y','G','P'), SAVE_TYPE_EEPROM_V124, 8 * 1024},
+    {GAME_ID('T','C','H','K'), SAVE_TYPE_EEPROM_V124, 8 * 1024}, // Aging cartridge
+
+    // Titles that contain save tags but must not use a save chip, otherwise
+    // they lock up or trigger anti-piracy checks.
+    {GAME_ID('A','I','2','E'), SAVE_TYPE_NONE, 0}, // Iridion II
+    {GAME_ID('A','I','2','P'), SAVE_TYPE_NONE, 0},
+    {GAME_ID('A','2','Y','E'), SAVE_TYPE_NONE, 0}, // Top Gun - Combat Zones
+    {GAME_ID('A','S','L','E'), SAVE_TYPE_NONE, 0}, // Stuart Little 2
+    {GAME_ID('A','S','L','F'), SAVE_TYPE_NONE, 0},
+};
+#undef GAME_ID
+
+const SaveTypeInfo* sav_resolveGameIdSaveTypeInfo(
+    u32 gameCode, const SaveTypeInfo* detected, SaveTypeInfo& storage)
+{
+    const GameIdSaveOverride* override = nullptr;
+    for (const auto& entry : sGameIdSaveOverrides)
+    {
+        if (entry.gameCode == gameCode)
+        {
+            override = &entry;
+            break;
+        }
+    }
+
+    if (!override && (gameCode & 0xFF) == 'F')
+    {
+        // Classic NES Series (Famicom Mini) ships without a reliable save tag.
+        storage = SaveTypeInfo { "", 0, SAVE_TYPE_EEPROM_V124, 8 * 1024, eeprom_patchV124 };
+        return &storage;
+    }
+
+    if (!override)
+    {
+        return detected;
+    }
+
+    if (override->type == SAVE_TYPE_NONE)
+    {
+        storage = SaveTypeInfo { "", 0, SAVE_TYPE_NONE, 0, nullptr };
+        return &storage;
+    }
+
+    const u16 category = override->type & static_cast<u16>(SAVE_TYPE_MASK);
+    if (detected && (detected->type & SAVE_TYPE_MASK) == category)
+    {
+        // The SDK patch version already found is authoritative; only correct
+        // the save size (e.g. 4 Kbit vs 64 Kbit EEPROM).
+        storage = *detected;
+        if (override->size != 0)
+        {
+            storage.size = override->size;
+        }
+        return &storage;
+    }
+
+    storage = SaveTypeInfo
+    {
+        "", 0, static_cast<SaveType>(override->type), override->size,
+        getSavePatchFunction(override->type)
+    };
+    return &storage;
 }

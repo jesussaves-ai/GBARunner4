@@ -26,7 +26,12 @@ ensureJittedCommonHiReg:
     ldr r8, [sp, #-4]
 
 ensureJittedCommon:
+    // Normalize GBA rom mirrors (0x0A/0x0C) to the base 0x08 range before
+    // translating to the DS address space. Without this a BX into a rom mirror
+    // would jump to an unmapped address and prefetch-abort forever. This is a
+    // no-op for the direct 0x08/0x09 rom range.
     cmp r8, #ROM_LINEAR_GBA_ADDRESS
+        biccs r8, r8, #0x06000000
         addhs r8, r8, #(ROM_LINEAR_DS_ADDRESS - ROM_LINEAR_GBA_ADDRESS)
 
     ldr r10, [r12, #(vm_undefinedSpsr - vm_armUndefinedDispatchTable)]

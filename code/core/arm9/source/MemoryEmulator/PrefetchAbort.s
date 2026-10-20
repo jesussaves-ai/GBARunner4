@@ -20,6 +20,11 @@ arm_func memu_prefetchAbort
 
 1:
 #ifdef GBAR3_HICODE_CACHE_MAPPING
+    // GBA rom is mirrored at 0x0A000000 and 0x0C000000. Normalize those mirror
+    // bits here (a no-op for the already-normalized high rom) so both the paged
+    // cache tag and the resumed pc use the base 0x08 address. Without this a
+    // branch or load into a rom mirror would abort forever.
+    bic lr, lr, #0x06000000
     ldr sp,= dtcmHicodeStackEnd
     push {r0-r3, r12, lr}
     mov r0, lr

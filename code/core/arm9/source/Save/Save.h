@@ -15,6 +15,30 @@ extern gba_save_shared_t gGbaSaveShared;
 extern u32 emu_vblankIrqSkipSaveCheckInstruction;
 
 bool sav_tryPatchFunction(const u32* signature, u32 saveSwiNumber, void* patchFunction);
+
+/// @brief Writes a Thumb SWI to the ROM function located at the given GBA
+///        address. Handles both functions in the linearly mapped 2 MB window
+///        and functions in the paged high rom, so callers never need to know
+///        where in the rom a function lives.
+/// @param gbaAddress The GBA address of the function to patch. The bottom bit
+///        is ignored.
+/// @param swiNumber The save SWI number to write.
+void sav_patchRomFunction(u32 gbaAddress, u32 swiNumber);
+
+/// @brief Resolves the save type info to use for a game, applying the compact
+///        game id override table for titles with missing or ambiguous SDK save
+///        tags (e.g. 4K/64K EEPROM games and the Classic NES series).
+/// @param gameCode The four character game code from the rom header.
+/// @param detected The save type info found by scanning the SDK tag, or
+///        nullptr if none was found.
+/// @param storage Scratch storage used when an override needs to return a
+///        synthesized or adjusted save type info. Must outlive the result.
+/// @return The effective save type info. May equal `detected` when no override
+///        applies, be `&storage` when one does, or be nullptr when neither is
+///        available.
+const SaveTypeInfo* sav_resolveGameIdSaveTypeInfo(
+    u32 gameCode, const SaveTypeInfo* detected, SaveTypeInfo& storage);
+
 void sav_initializeSave(const SaveTypeInfo* saveTypeInfo, const char* savePath);
 
 #ifdef __cplusplus

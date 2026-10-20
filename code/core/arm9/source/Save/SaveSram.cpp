@@ -3,6 +3,12 @@
 #include "SaveTypeInfo.h"
 #include "SaveSram.h"
 
+// All SRAM patch functions below are applied through sav_tryPatchFunction,
+// which searches the whole rom (linear window + paged high rom) and writes the
+// SWI via sav_patchRomFunction. SRAM functions above the 2 MB ROM_LINEAR_SIZE
+// window are therefore patched in place instead of being mistaken for the
+// linearly mapped copy.
+
 static const u32 sReadSramV110Sig[] = { 0xB0A7B590u, 0x6038466Fu, 0x60BA6079u, 0x49174817u };
 static const u32 sReadSramV111Sig[] = { 0xB0A0B570u, 0x1C0D1C04u, 0x4A081C16u, 0x49088810u };
 
