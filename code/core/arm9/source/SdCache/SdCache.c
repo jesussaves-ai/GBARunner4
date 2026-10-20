@@ -29,6 +29,13 @@ static u16 sCacheBlockToRomBlock[SDC_BLOCK_COUNT];
 ///        total number of cache blocks when some blocks are permanently loaded.
 static u32 sBlockCount;
 
+/// @brief The minimum number of replaceable cache blocks that must remain
+///        available. Blocks at and above this index are permanently reserved
+///        for patched rom functions. Keeping a floor prevents multi-function
+///        high-rom patching from underflowing sBlockCount or starving the
+///        replaceable part of the cache.
+#define SDC_MIN_EVICTABLE_BLOCKS    16
+
 static u32 sTabuLevel;
 static u32 sTabuBlocks[2];
 vu32 gSdCacheIrqForbiddenRomBlockReplacementRange;
@@ -248,7 +255,18 @@ void* sdc_loadRomBlockForPatching(u32 romAddress)
             sCacheBlockToRomBlock[((u32)data - (u32)&sdc_cache[0][0]) / SDC_BLOCK_SIZE] = SDC_ROM_BLOCK_INVALID;
         }
 
-        data = loadRomBlock(romBlock, --sBlockCount);
+        if (sBlockCount > SDC_MIN_EVICTABLE_BLOCKS)
+        {
+            // Permanently reserve the next free block from the top of the cache.
+            data = loadRomBlock(romBlock, --sBlockCount);
+        }
+        else
+        {
+            // The permanent patch area is full. Fall back to a normally
+            // replaceable block so the cache can neither underflow nor starve;
+            // the patch is still applied and survives until the block is reused.
+            data = loadRomBlock(romBlock, SDC_BLOCK_INVALID);
+        }
     }
     return (void*)((u32)data + (romAddress & SDC_BLOCK_MASK));
 }

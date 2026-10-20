@@ -239,7 +239,19 @@ static void handleSave(const char* savePath)
 
     u32 tagRomAddress;
     const SaveTypeInfo* saveTypeInfo = SaveTagScanner().FindSaveTag(&gFile, &sdc_cache[0][0], tagRomAddress);
-    
+
+    // Apply the game id override table for titles whose SDK save tag is missing
+    // or ambiguous. It may correct the save type/size or force no save chip.
+    SaveTypeInfo gameIdSaveTypeInfo;
+    saveTypeInfo = sav_resolveGameIdSaveTypeInfo(gRomHeader.gameCode, saveTypeInfo, gameIdSaveTypeInfo);
+    if (saveTypeInfo && saveTypeInfo->type == SAVE_TYPE_NONE)
+    {
+        gLogger->Log(LogLevel::Debug, "Save Type: None (game id override)\n");
+        disableSramReads();
+        disableSramWrites();
+        return;
+    }
+
     if (saveTypeInfo)
     {
         gLogger->Log(LogLevel::Debug, "%s\n", saveTypeInfo->tag);

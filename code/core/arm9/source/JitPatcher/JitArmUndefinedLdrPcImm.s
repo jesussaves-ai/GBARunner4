@@ -17,11 +17,12 @@
         .else
             // pc
             add r8, r11, #4
-            cmp r11, #ROM_LINEAR_DS_ADDRESS
-            blo jit_armUndefinedLdrPcImmCommon
-            cmp r11, #ROM_LINEAR_END_DS_ADDRESS
-            bhs jit_armUndefinedLdrPcImmCommon
-            add r8, r8, #(ROM_LINEAR_GBA_ADDRESS - ROM_LINEAR_DS_ADDRESS)
+            // Fold the two bounds checks into one range test: convert the base
+            // to a GBA address only when the instruction lies in the linearly
+            // mapped rom window. r9 is recomputed by the common block.
+            sub r9, r11, #ROM_LINEAR_DS_ADDRESS
+            cmp r9, #ROM_LINEAR_SIZE
+                addlo r8, r8, #(ROM_LINEAR_GBA_ADDRESS - ROM_LINEAR_DS_ADDRESS)
             b jit_armUndefinedLdrPcImmCommon
         .endif
 .endm

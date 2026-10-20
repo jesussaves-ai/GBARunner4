@@ -6,6 +6,12 @@
 
 //todo: Moero!! Jaleco Collection (Japan) reports EEPROM_V124, but the signatures below don't work!
 
+// All EEPROM patch functions below are applied through sav_tryPatchFunction,
+// which searches the whole rom (linear window + paged high rom) and writes the
+// SWI via sav_patchRomFunction. EEPROM functions above the 2 MB ROM_LINEAR_SIZE
+// window are therefore patched in place instead of being mistaken for the
+// linearly mapped copy.
+
 static const u32 sReadEepromDwordV111Sig[] = { 0xB0AAB5B0u, 0x6079466Fu, 0x80081C39u, 0x88011C38u };
 static const u32 sReadEepromDwordV120Sig[] = { 0xB0A2B570u, 0x04001C0Du, 0x48030C03u, 0x88806800u };
 static const u32 sProgramEepromDwordV111Sig[] = { 0xB0AAB580u, 0x6079466Fu, 0x80081C39u, 0x88011C38u };
