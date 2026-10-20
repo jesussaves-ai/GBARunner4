@@ -40,7 +40,7 @@ static void writeFifo32(gbas_direct_channel_t* channel, u32 val, u32 mask)
     old &= ~mask;
     old |= val & mask;
     channel->fifo[writeOffset] = old;
-    channel->writeOffset = (writeOffset + 1) & 7;
+    channel->writeOffset = (writeOffset + 1) & 31;
 }
 
 // Registers in 0x80..0x8F that are written even while the master enable is off.

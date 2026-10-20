@@ -12,6 +12,12 @@
 
 GbaDisplayConfigurationService gGbaDisplayConfigurationService;
 
+// Read by the vblank irq handler (Emulator/VBlankIrq.s) to decide whether the
+// display capture buffers need to be swapped every frame.
+extern "C" {
+u8 gDisplayCaptureActive = 0;
+}
+
 void GbaDisplayConfigurationService::SetupCaptureOam(const DisplaySettings& displaySettings)
 {
     vu16* oamPtr = GFX_OAM_SUB;
@@ -116,6 +122,7 @@ void GbaDisplayConfigurationService::SetupGbaScreen(const DisplaySettings& displ
         sysipc_setBottomBacklight(true);
     }
 
+    gDisplayCaptureActive = displaySettings.enableCenterAndMask ? 1 : 0;
     REG_DISPCAPCNT = 0x00360000;
     if (displaySettings.enableCenterAndMask)
     {

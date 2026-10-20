@@ -24,8 +24,8 @@ static s8 updateDirectChannel(gbas_direct_channel_t* channel, gbas_direct_channe
     for (u32 i = timerOverflows; i > 0; --i)
     {
         u32 readOffset = channel->readOffset;
-        u32 fifoCount = (channel->writeOffset - readOffset);
-        if (!(fifoCount & 4) && !channel->dmaRequest)
+        u32 fifoCount = (channel->writeOffset - readOffset) & 31;
+        if (fifoCount <= 27 && !channel->dmaRequest)
         {
             channel->dmaRequest = true;
             ipc_triggerArm7Irq();
@@ -35,11 +35,11 @@ static s8 updateDirectChannel(gbas_direct_channel_t* channel, gbas_direct_channe
             samples >>= 8;
             channel7->curPlaySampleCount--;
         }
-        else if (__builtin_expect((fifoCount & 7) != 0, true))
+        else if (__builtin_expect(fifoCount != 0, true))
         {
             samples = channel->fifo[readOffset];
             channel7->curPlaySampleCount = 3;
-            channel->readOffset = (readOffset + 1) & 7;
+            channel->readOffset = (readOffset + 1) & 31;
         }
     }
     channel7->curPlaySamples = samples;
