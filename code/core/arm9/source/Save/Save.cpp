@@ -35,15 +35,41 @@ extern FIL gFile;
 
 static u32* searchHiCode(const u32* signature, u32 romStart, u32 romEnd)
 {
-    // todo: this doesn't work if the function lies on a cache block boundary
+    // A 16 byte signature that starts in the last 12 bytes of a 4 KB rom block
+    // straddles into the next block. Each block is searched on its own, so such a
+    // signature would be missed; carry the previous block's tail to also test the
+    // three boundary positions.
+    u32 prevTail[4];
+    u32 prevTailStart = 0;
+    bool hasPrev = false;
     for (u32 i = romStart; i < romEnd; i += SDC_BLOCK_SIZE)
     {
-        const void* block = sdc_getRomBlock(i);
+        const u32* block = (const u32*)sdc_getRomBlock(i);
         u32* function = (u32*)mem_fastSearch16((const u32*)block, SDC_BLOCK_SIZE, signature);
         if (function)
         {
             return (u32*)sdc_loadRomBlockForPatching(i + (u32)function - (u32)block);
         }
+
+        if (hasPrev)
+        {
+            for (u32 j = 1; j <= 3; ++j)
+            {
+                const u32 copyFromPrev = 16 - j * 4;
+                u32 combined[4];
+                memcpy(combined, (const u8*)prevTail + j * 4, copyFromPrev);
+                memcpy((u8*)combined + copyFromPrev, block, j * 4);
+                if (combined[0] == signature[0] && combined[1] == signature[1] &&
+                    combined[2] == signature[2] && combined[3] == signature[3])
+                {
+                    return (u32*)sdc_loadRomBlockForPatching(prevTailStart + j * 4);
+                }
+            }
+        }
+
+        memcpy(prevTail, (const u8*)block + (SDC_BLOCK_SIZE - 16), 16);
+        prevTailStart = i + SDC_BLOCK_SIZE - 16;
+        hasPrev = true;
     }
 
     return nullptr;

@@ -2,6 +2,7 @@
 #include <string.h>
 #include <libtwl/mem/memSwap.h>
 #include "MemFastSearch.h"
+#include "SdCache/SdCache.h"
 #include "Save.h"
 #include "SaveSwi.h"
 #include "SaveFlashDefinitions.h"
@@ -35,6 +36,24 @@ struct flash_patchinfo_t
 static flash_patchinfo_t sPatchInfo;
 static flash_v120_type sFlashType;
 static const u16 sMaxTime[] = { 0xA, 0xFFBD, 0xC2, 0xA, 0xFFBD, 0xC2, 0x28, 0xFFBD, 0xC2, 0xC8, 0xFFBD, 0xC2 };
+
+/// @brief Patches the entry of a ROM function to a save SWI, supporting
+///        functions in the linearly mapped 2 MB window as well as functions in
+///        the paged high rom. Writing the SWI linearly unconditionally would
+///        corrupt memory for functions above the linear window and leave the
+///        real rom function unpatched, which makes games poll the flash forever.
+static void patchRomFunctionByGbaAddress(u32 gbaAddress, u32 swiNumber)
+{
+    gbaAddress &= ~1u;
+    if (gbaAddress >= ROM_LINEAR_GBA_ADDRESS && gbaAddress < ROM_LINEAR_END_GBA_ADDRESS)
+    {
+        *(u16*)(gbaAddress - ROM_LINEAR_GBA_ADDRESS + ROM_LINEAR_DS_ADDRESS) = SAVE_THUMB_SWI(swiNumber);
+    }
+    else
+    {
+        *(u16*)sdc_loadRomBlockForPatching(gbaAddress) = SAVE_THUMB_SWI(swiNumber);
+    }
+}
 
 static void readFlash(u16 secNo, u32 offset, u8* dst, u32 size)
 {
@@ -198,20 +217,18 @@ bool flash_patchV120(const SaveTypeInfo* saveTypeInfo, FIL* romFile, u32 tagRomA
         return false;
     }
 
-    u32* pIdentify = (u32*)mem_fastSearch16((const u32*)ROM_LINEAR_DS_ADDRESS, ROM_LINEAR_SIZE, sIdentifyFlashV120Sig);
-    if (!pIdentify)
+    // Search the whole rom (not just the linearly mapped 2 MB) so titles whose
+    // flash code lives in the paged high rom still get patched.
+    if (!sav_tryPatchFunction(sIdentifyFlashV120Sig, 0, (void*)identifyFlash512))
     {
         return false;
     }
 
-    sav_swiTable[0] = (void*)identifyFlash512;
-    *(u16*)pIdentify = SAVE_THUMB_SWI(0);
-
     sav_swiTable[1] = (void*)readFlash;
-    *(u16*)((*(u32*)(tempBuffer + FLASH_V120_OFFSET_READ) & ~1) - ROM_LINEAR_GBA_ADDRESS + ROM_LINEAR_DS_ADDRESS) = SAVE_THUMB_SWI(1);
+    patchRomFunctionByGbaAddress(*(u32*)(tempBuffer + FLASH_V120_OFFSET_READ), 1);
 
     sav_swiTable[2] = (void*)verifyFlashSector;
-    *(u16*)((*(u32*)(tempBuffer + FLASH_V120_OFFSET_VERIFY_SECTOR) & ~1) - ROM_LINEAR_GBA_ADDRESS + ROM_LINEAR_DS_ADDRESS) = SAVE_THUMB_SWI(2);
+    patchRomFunctionByGbaAddress(*(u32*)(tempBuffer + FLASH_V120_OFFSET_VERIFY_SECTOR), 2);
 
     initializeFlash512();
     return true;
@@ -224,20 +241,18 @@ bool flash_patchV123(const SaveTypeInfo* saveTypeInfo, FIL* romFile, u32 tagRomA
         return false;
     }
 
-    u32* pIdentify = (u32*)mem_fastSearch16((const u32*)ROM_LINEAR_DS_ADDRESS, ROM_LINEAR_SIZE, sIdentifyFlashV123Sig);
-    if (!pIdentify)
+    // Search the whole rom (not just the linearly mapped 2 MB) so titles whose
+    // flash code lives in the paged high rom still get patched.
+    if (!sav_tryPatchFunction(sIdentifyFlashV123Sig, 0, (void*)identifyFlash512))
     {
         return false;
     }
 
-    sav_swiTable[0] = (void*)identifyFlash512;
-    *(u16*)pIdentify = SAVE_THUMB_SWI(0);
-
     sav_swiTable[1] = (void*)readFlash;
-    *(u16*)((*(u32*)(tempBuffer + FLASH_V120_OFFSET_READ) & ~1) - ROM_LINEAR_GBA_ADDRESS + ROM_LINEAR_DS_ADDRESS) = SAVE_THUMB_SWI(1);
+    patchRomFunctionByGbaAddress(*(u32*)(tempBuffer + FLASH_V120_OFFSET_READ), 1);
 
     sav_swiTable[2] = (void*)verifyFlashSector;
-    *(u16*)((*(u32*)(tempBuffer + FLASH_V120_OFFSET_VERIFY_SECTOR) & ~1) - ROM_LINEAR_GBA_ADDRESS + ROM_LINEAR_DS_ADDRESS) = SAVE_THUMB_SWI(2);
+    patchRomFunctionByGbaAddress(*(u32*)(tempBuffer + FLASH_V120_OFFSET_VERIFY_SECTOR), 2);
 
     initializeFlash512();
     return true;
@@ -250,20 +265,16 @@ bool flash_patchV126(const SaveTypeInfo* saveTypeInfo, FIL* romFile, u32 tagRomA
         return false;
     }
 
-    u32* pIdentify = (u32*)mem_fastSearch16((const u32*)ROM_LINEAR_DS_ADDRESS, ROM_LINEAR_SIZE, sIdentifyFlashV123Sig);
-    if (!pIdentify)
+    if (!sav_tryPatchFunction(sIdentifyFlashV123Sig, 0, (void*)identifyFlash512))
     {
         return false;
     }
 
-    sav_swiTable[0] = (void*)identifyFlash512;
-    *(u16*)pIdentify = SAVE_THUMB_SWI(0);
-
     sav_swiTable[1] = (void*)readFlash;
-    *(u16*)((*(u32*)(tempBuffer + FLASH_V120_OFFSET_READ) & ~1) - ROM_LINEAR_GBA_ADDRESS + ROM_LINEAR_DS_ADDRESS) = SAVE_THUMB_SWI(1);
+    patchRomFunctionByGbaAddress(*(u32*)(tempBuffer + FLASH_V120_OFFSET_READ), 1);
 
     sav_swiTable[2] = (void*)verifyFlashSector;
-    *(u16*)((*(u32*)(tempBuffer + FLASH_V120_OFFSET_VERIFY_SECTOR) & ~1) - ROM_LINEAR_GBA_ADDRESS + ROM_LINEAR_DS_ADDRESS) = SAVE_THUMB_SWI(2);
+    patchRomFunctionByGbaAddress(*(u32*)(tempBuffer + FLASH_V120_OFFSET_VERIFY_SECTOR), 2);
 
     if (sav_tryPatchFunction(sVerifyFlashV126Sig, 3, (void*)verifyFlash))
     {
