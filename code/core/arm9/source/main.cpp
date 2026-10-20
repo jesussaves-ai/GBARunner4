@@ -18,6 +18,7 @@
 #include "Emulator/IoRegisters.h"
 #include "Core/Environment.h"
 #include "Peripherals/DmaTransfer.h"
+#include "Peripherals/RomGpio/RomGpio.h"
 #include "Logger/NitroEmulatorOutputStream.h"
 #include "Logger/PlainLogger.h"
 #include "Logger/NullLogger.h"
@@ -307,12 +308,12 @@ static void applyGameJitPatches()
         if (jitPatchAddress >= 0x08000000u && jitPatchAddress < 0x0A000000u)
         {
             gLogger->Log(LogLevel::Debug, "0x%08X\n", jitPatchAddress);
-            if (jitPatchAddress >= ROM_LINEAR_GBA_ADDRESS && jitPatchAddress < ROM_LINEAR_END_GBA_ADDRESS)
-            {
-                jit_processArmInstruction(reinterpret_cast<u32*>(jitPatchAddress - ROM_LINEAR_GBA_ADDRESS + ROM_LINEAR_DS_ADDRESS));
-            }
-
-            jit_processArmInstruction(static_cast<u32*>(sdc_loadRomBlockForPatching(jitPatchAddress)));
+            // Apply to the sd cache block (which serves both the linear window
+            // and the paged high rom) and remember the result so the patch also
+            // survives eviction of the containing block.
+            u32* patchPtr = static_cast<u32*>(sdc_loadRomBlockForPatching(jitPatchAddress));
+            jit_processArmInstruction(patchPtr);
+            sdc_patchRom(jitPatchAddress, *patchPtr, 4);
         }
     }
 }
@@ -511,6 +512,10 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     }
     loadGameSpecificSettings();
     handleSave(romPath);
+    // The save tag scanner uses sdc_cache directly as a scratch buffer, which
+    // overwrites the first blocks without updating the rom block mapping. Drop
+    // those stale mappings so the guest reloads (and re-patches) them on demand.
+    sdc_invalidateCacheBlockRange(0, SAVE_TAG_SCANNER_TEMP_BUFFER_SIZE / SDC_BLOCK_SIZE);
     SelfModifyingPatches().ApplyPatches(gAppSettingsService.GetAppSettings().runSettings);
 
     waitSplashScreenAnimation();
@@ -537,6 +542,7 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     setupJit();
     dma_init();
     gbas_init();
+    gRomGpio.Initialize((rio_registers_t*)sdc_loadRomBlockForPatching(RIO_GBA_ADDRESS));
     dc_flushRange((void*)ROM_LINEAR_DS_ADDRESS, ROM_LINEAR_SIZE);
     dc_flushRange(gGbaBios, sizeof(gGbaBios));
     ic_invalidateAll();

@@ -30,6 +30,33 @@ const void* sdc_loadRomBlockDirect(u32 romAddress);
 /// @return A pointer to romAddress in the cache block.
 void* sdc_loadRomBlockForPatching(u32 romAddress);
 
+/// @brief Writes a patch to the given GBA rom address and remembers it so it is
+///        permanently preserved. The patch is reapplied to the containing rom
+///        block every time that block is loaded into the sd cache, which makes
+///        it survive eviction from the paged high-rom cache. For addresses in
+///        the linearly mapped window the copy in main memory is also updated so
+///        the executing code sees the patch.
+/// @param gbaAddress The GBA address to patch. Must be aligned for `size`.
+/// @param value The value to write.
+/// @param size The number of bytes to write (1, 2 or 4).
+void sdc_patchRom(u32 gbaAddress, u32 value, u32 size);
+
+/// @brief Searches the whole rom (the linearly mapped window and the paged high
+///        rom) for a 16 byte signature. This lets patchers find functions that
+///        live above the first 2 MB instead of assuming they are linear.
+/// @param signature A 16 byte signature.
+/// @return The GBA address of the first match, or 0 when not found.
+u32 sdc_searchRomSignature(const u32* signature);
+
+/// @brief Drops the rom block mapping of a range of sd cache blocks. This is
+///        required after a scratch writer (for example the 64 KB save tag
+///        scanner, which uses sdc_cache directly) has overwritten cache blocks
+///        without going through the mapping, otherwise the mapping would keep
+///        serving the corrupted bytes to the guest.
+/// @param firstBlock The first cache block to invalidate.
+/// @param blockCount The number of cache blocks to invalidate.
+void sdc_invalidateCacheBlockRange(u32 firstBlock, u32 blockCount);
+
 static inline const void* sdc_getRomBlock(u32 romAddress)
 {
     u32 romBlock = ((romAddress << 7) >> 7) >> SDC_BLOCK_SHIFT;

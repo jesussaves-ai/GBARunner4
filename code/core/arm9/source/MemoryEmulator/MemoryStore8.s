@@ -118,8 +118,10 @@ arm_func memu_store8Sram
     cmp r9, r11
         bxeq lr
     strb r9, [r10]
-    bl markSaveDirty
-    bx lr
+    // Tail call: `bl` here would overwrite lr with the address of this return,
+    // and markSaveDirty would `bx lr` straight back into it, looping forever.
+    // Branching leaves lr as the original return address for markSaveDirty.
+    b markSaveDirty
 
 /// @brief Marks the GBA save as dirty, drains the write buffer and enables the
 ///        vblank save check by patching emu_vblankIrqSkipSaveCheckInstruction.
