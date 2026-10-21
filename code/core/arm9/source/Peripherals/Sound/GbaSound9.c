@@ -31,6 +31,10 @@ static void resetFifo(gbas_direct_channel_t* channel)
 {
     // readOffset and writeOffset are adjacent, so clear both with one store.
     *(volatile u32Alias*)&channel->readOffset = 0;
+    // Drop any DMA request that was armed before the reset, otherwise a stale
+    // 4-word burst could fire into the freshly cleared FIFO. The ARM7 re-arms a
+    // request from its mixer as soon as the (now empty) FIFO is refilled.
+    channel->dmaRequest = false;
     // Tell the ARM7 to drop the tail of the previous stream that is still cached
     // in its playback word, so restarting direct sound does not click.
     channel->fifoReset = true;
