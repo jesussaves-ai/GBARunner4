@@ -13,9 +13,9 @@ export TOPDIR	:=	$(CURDIR)
 NITRO_FILES	:=
 
 # These set the information text in the nds file
-GAME_TITLE     := GBARunner 3
+GAME_TITLE     := GBARunner4
 GAME_SUBTITLE1 := Tests
-GAME_SUBTITLE2 := By Gericom
+GAME_SUBTITLE2 := By Jesus Saves
 
 include $(DEVKITARM)/ds_rules
 

@@ -17,8 +17,8 @@ NITRO_FILES	:=
 endif
 
 # These set the information text in the nds file
-GAME_TITLE     := GBARunner 3
-GAME_SUBTITLE1 := By Gericom
+GAME_TITLE     := GBARunner4
+GAME_SUBTITLE1 := By Jesus Saves
 GAME_SUBTITLE2 :=
 
 include $(DEVKITARM)/ds_rules
