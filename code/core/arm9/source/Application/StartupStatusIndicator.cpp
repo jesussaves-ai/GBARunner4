@@ -111,9 +111,15 @@ void writeGlyphTile(vu16* tileDest, const u8* glyph)
             u8 bits = glyph[row];
             for (u32 col = 0; col < 8; col += 2)
             {
+                // 4bpp hardware nibble order (GBATEK): the even pixel (X=col)
+                // is the LOW nibble and the odd pixel (X=col+1) is the HIGH
+                // nibble of each byte. The glyph table is authored MSB-left
+                // (bit 7 = X=0), so p0/p1 must be packed low/high respectively;
+                // the previous (p0 << 4) | p1 swapped every horizontal pixel
+                // pair (0<->1, 2<->3, ...) and garbled the whole font.
                 u8 p0 = (bits >> (7 - col)) & 1;
-                u8 p1 = (bits >> (7 - (col + 1))) & 1;
-                tile[row * 4 + col / 2] = (p0 << 4) | p1;
+                u8 p1 = (bits >> (6 - col)) & 1;
+                tile[row * 4 + col / 2] = p0 | (p1 << 4);
             }
         }
     }
