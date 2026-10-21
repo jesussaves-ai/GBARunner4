@@ -23,6 +23,7 @@
 #define STATUS_TILEMAP_OFFSET   0x8000          // screen base block 16
 #define STATUS_TILES_OFFSET     0x14000         // char base block 5
 #define STATUS_TILEMAP_ENTRIES  (32 * 32)
+#define STATUS_TILE_HALFWORDS   16              // 4bpp 8x8 tile = 32 bytes
 
 // priority 0, char base 5, screen base 16, 32x32, 4bpp
 #define STATUS_BG0CNT_VALUE     ((16 << 8) | (5 << 2) | 0)
@@ -85,20 +86,34 @@ const u8* findGlyph(char c)
     return nullptr;
 }
 
-/// @brief Expands an 8x8 1bpp glyph into a 4bpp tile (pixel value 0 = backdrop,
-///        1 = text colour).
-void glyphToTile(const u8* glyph, u8* tile)
+/// @brief Expands an 8x8 1bpp glyph (or a blank tile when glyph is nullptr) into
+///        a 4bpp tile, then stores it to VRAM using 16-bit writes only.
+///
+///        NDS VRAM silently drops 8-bit stores, so the tile is assembled in a
+///        local RAM buffer and committed with u16 writes. Writing the raw bytes
+///        through a u8*/memset pointer (as the original code did) leaves the
+///        glyph memory unmodified, which is what produced the garbage tiles.
+void writeGlyphTile(vu16* tileDest, const u8* glyph)
 {
-    for (u32 row = 0; row < 8; row++)
+    u8 tile[STATUS_TILE_HALFWORDS * 2];
+    memset(tile, 0, sizeof(tile));
+
+    if (glyph)
     {
-        u8 bits = glyph[row];
-        for (u32 col = 0; col < 8; col += 2)
+        for (u32 row = 0; row < 8; row++)
         {
-            u8 p0 = (bits >> (7 - col)) & 1;
-            u8 p1 = (bits >> (7 - (col + 1))) & 1;
-            tile[row * 4 + col / 2] = (p0 << 4) | p1;
+            u8 bits = glyph[row];
+            for (u32 col = 0; col < 8; col += 2)
+            {
+                u8 p0 = (bits >> (7 - col)) & 1;
+                u8 p1 = (bits >> (7 - (col + 1))) & 1;
+                tile[row * 4 + col / 2] = (p0 << 4) | p1;
+            }
         }
     }
+
+    for (u32 i = 0; i < STATUS_TILE_HALFWORDS; i++)
+        tileDest[i] = (u16)(tile[i * 2] | (tile[i * 2 + 1] << 8));
 }
 }
 
@@ -124,21 +139,22 @@ void StartupStatusIndicator::Show()
 
     const u32 length = (u32)strlen(text);
 
-    // Build one 4bpp tile per character.
-    u8* tiles = (u8*)(STATUS_SUB_BG_BASE + STATUS_TILES_OFFSET);
+    // Build one 4bpp tile per character (16-bit VRAM stores only).
+    vu16* tiles = (vu16*)(STATUS_SUB_BG_BASE + STATUS_TILES_OFFSET);
     for (u32 i = 0; i < length; i++)
-    {
-        u8* tile = tiles + i * 32;
-        memset(tile, 0, 32);
-        const u8* glyph = findGlyph(text[i]);
-        if (glyph)
-            glyphToTile(glyph, tile);
-    }
+        writeGlyphTile(tiles + i * STATUS_TILE_HALFWORDS, findGlyph(text[i]));
+
+    // Wipe the whole 32x32 tilemap before writing the status row. Bank C can
+    // still hold leftovers from the border/splash/previous run and any stale
+    // entry would be drawn as a grid of garbage tiles (the green 'F'/'T'
+    // artifacting) behind and around the badge.
+    vu16* tilemap = (vu16*)(STATUS_SUB_BG_BASE + STATUS_TILEMAP_OFFSET);
+    for (u32 i = 0; i < STATUS_TILEMAP_ENTRIES; i++)
+        tilemap[i] = 0;
 
     // Centre the badge horizontally and place it just above where the bottom
     // border would be.
-    vu16* tilemap = (vu16*)(STATUS_SUB_BG_BASE + STATUS_TILEMAP_OFFSET);
-    const u32 startCol = (32 - length) / 2;
+    const u32 startCol = (length < 32) ? (32 - length) / 2 : 0;
     for (u32 i = 0; i < length; i++)
         tilemap[STATUS_ROW * 32 + startCol + i] = (u16)i;
 
