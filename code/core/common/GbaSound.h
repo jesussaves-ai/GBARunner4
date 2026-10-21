@@ -1,9 +1,22 @@
 #pragma once
 
+// ARM7-side playback state for one Direct Sound channel.
 typedef struct
 {
     u32 curPlaySampleCount;
     u32 curPlaySamples;
+
+    // DAC de-click state. Real hardware holds the last written sample when the
+    // FIFO underruns; that is correct for a momentary underrun, but a stream that
+    // has genuinely stopped would otherwise leave a stuck DC level. `underrunCount`
+    // counts consecutive DS output samples with no FIFO data (so a short hold stays
+    // hardware-accurate and only a long one releases), `slewCount` is the number of
+    // output samples still to blend after a reset/recovery, and `lastOut` is the
+    // last value emitted to the DAC so a restart can be slewed instead of stepped
+    // (which would be an audible click).
+    u32 underrunCount;
+    u32 slewCount;
+    s16 lastOut;
 } gbas_direct_channel7_t;
 
 // The GBA Direct Sound FIFO is 8 words (32 bytes) deep: the hardware sound DMA

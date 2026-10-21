@@ -19,6 +19,75 @@ static bool sPaused;
 // single step.
 #define GBAS_MAX_OVERFLOWS_PER_SAMPLE 4
 
+// Consecutive DS output samples the mixer holds the last DAC sample when no FIFO
+// data is available. A momentary underrun (a handful of samples) is held exactly
+// like the real DAC, so normal playback stays bit-accurate; only a stream that
+// has genuinely stopped for this long (~8 ms at the 32.7 kHz output rate) begins
+// releasing its stuck DC level toward zero.
+#define GBAS_FIFO_HOLD_SAMPLES 256
+
+// Maximum step (in s8 units) applied per DS sample while a reset/recovered
+// stream is blended back in, and how many samples that blend lasts, so an
+// underrun / timer-reload edge can never be emitted as a square-wave step (an
+// audible click).
+#define GBAS_DECLICK_STEP 8
+#define GBAS_DECLICK_SAMPLES 16
+
+// The FIFO half-empty refill request (DRQ) is level-triggered on real hardware:
+// as soon as the FIFO has >= 4 words free it must be armed, independent of
+// whether a direct-sound sample was consumed for this DS sample. Arming it from
+// the zero-overflow path keeps the shallow 8-word FIFO topped up while the guest
+// is reprogramming the direct-sound timer (map transitions retrigger the
+// tempo/timer), instead of waiting for a later overflow to re-arm the request.
+static inline void directChannelRequestRefill(gbas_direct_channel_t* channel)
+{
+    u32 fifoCount = (channel->writeOffset - channel->readOffset) & GBAS_DIRECT_FIFO_MASK;
+    if (!(fifoCount & 4) && !channel->dmaRequest)
+    {
+        channel->dmaRequest = true;
+        ipc_triggerArm7Irq();
+    }
+}
+
+// Produce one DS DAC output sample. `underrun` is true when no new FIFO sample
+// was consumed for it. A short underrun returns the held sample unchanged
+// (hardware sample-and-hold); a long one releases the stuck DC logarithmically.
+// A recovered or restarted stream is slewed toward the new value instead of
+// stepping, so a map-transition reload cannot emit a click.
+static inline s8 directChannelEmit(gbas_direct_channel7_t* channel7, s8 raw, bool underrun)
+{
+    if (underrun)
+    {
+        if (channel7->underrunCount != 0xFFFFFFFF)
+            channel7->underrunCount++;
+        if (channel7->underrunCount > GBAS_FIFO_HOLD_SAMPLES)
+            channel7->lastOut -= channel7->lastOut >> 3;
+        return (s8)channel7->lastOut;
+    }
+
+    // Fresh data after a long hold: blend the recovery instead of stepping.
+    if (__builtin_expect(channel7->underrunCount > GBAS_FIFO_HOLD_SAMPLES, false))
+        channel7->slewCount = GBAS_DECLICK_SAMPLES;
+
+    s8 out = raw;
+    if (__builtin_expect(channel7->slewCount != 0, false))
+    {
+        int diff = (int)raw - channel7->lastOut;
+        if (diff > GBAS_DECLICK_STEP)
+            diff = GBAS_DECLICK_STEP;
+        else if (diff < -GBAS_DECLICK_STEP)
+            diff = -GBAS_DECLICK_STEP;
+        out = (s8)(channel7->lastOut + diff);
+        if (diff == 0)
+            channel7->slewCount = 0;
+        else
+            channel7->slewCount--;
+    }
+    channel7->underrunCount = 0;
+    channel7->lastOut = out;
+    return out;
+}
+
 static s8 updateDirectChannel(gbas_direct_channel_t* channel, gbas_direct_channel7_t* channel7, u32 timerOverflows)
 {
     u32 samples = channel7->curPlaySamples;
@@ -31,10 +100,25 @@ static s8 updateDirectChannel(gbas_direct_channel_t* channel, gbas_direct_channe
     {
         channel->fifoReset = false;
         channel7->curPlaySampleCount = 0;
+        // The new stream can begin at a very different level than the last DAC
+        // sample; arm the de-click blend so the restart is crossfaded, not
+        // stepped. Skip it coming out of silence so a fresh attack is not dulled.
+        if (channel7->lastOut != 0)
+            channel7->slewCount = GBAS_DECLICK_SAMPLES;
     }
-    // Nothing elapsed for this DS sample: sample-and-hold is correct.
+    // Nothing elapsed for this DS sample: the output itself is sample-and-hold.
+    // The half-empty refill request is still armed here because it is level-
+    // triggered on hardware: a FIFO that drained while the direct-sound timer was
+    // being reprogrammed (map transitions retrigger tempo/timer) must be refilled
+    // now, not only on a later overflow.
     if (timerOverflows == 0)
     {
+        directChannelRequestRefill(channel);
+        // While holding or blending, keep emitting the shaped value rather than
+        // jumping back to the raw held sample.
+        if (__builtin_expect(channel7->underrunCount != 0 || channel7->slewCount != 0, false))
+            return (s8)channel7->lastOut;
+        channel7->lastOut = (s8)samples;
         return (s8)samples;
     }
 
@@ -50,19 +134,14 @@ static s8 updateDirectChannel(gbas_direct_channel_t* channel, gbas_direct_channe
         timerOverflows = GBAS_MAX_OVERFLOWS_PER_SAMPLE;
     }
 
+    bool underrun = false;
     for (u32 i = timerOverflows; i > 0; --i)
     {
+        // Half-empty refill request, exactly like the GBA FIFO's request point.
+        // It also fires on an empty FIFO, so an underrun always re-arms a refill.
+        directChannelRequestRefill(channel);
         u32 readOffset = channel->readOffset;
         u32 fifoCount = (channel->writeOffset - readOffset) & GBAS_DIRECT_FIFO_MASK;
-        // Issue a request once at least 4 words are free so the 4-word sound DMA
-        // burst always fits, exactly like the GBA FIFO's half-empty request
-        // point. The same check also fires on an empty FIFO, so an underrun
-        // always re-arms a refill request.
-        if (!(fifoCount & 4) && !channel->dmaRequest)
-        {
-            channel->dmaRequest = true;
-            ipc_triggerArm7Irq();
-        }
         if (channel7->curPlaySampleCount != 0)
         {
             samples >>= 8;
@@ -74,10 +153,16 @@ static s8 updateDirectChannel(gbas_direct_channel_t* channel, gbas_direct_channe
             channel7->curPlaySampleCount = 3;
             channel->readOffset = (readOffset + 1) & GBAS_DIRECT_FIFO_MASK;
         }
+        else
+        {
+            // FIFO empty: this overflow has no data. Remember it so the output is
+            // held (and a long stall released) instead of emitting a bogus step.
+            underrun = true;
+        }
     }
     channel7->curPlaySamples = samples;
 
-    return (s8)samples;
+    return directChannelEmit(channel7, (s8)samples, underrun);
 }
 
 static inline s16 clampSample(int inSample)
@@ -97,8 +182,14 @@ void gbas_init(gbas_shared_t* sharedData)
     sPaused = false; //true;
     sDirectChannels[0].curPlaySampleCount = 0;
     sDirectChannels[0].curPlaySamples = 0;
+    sDirectChannels[0].underrunCount = 0;
+    sDirectChannels[0].slewCount = 0;
+    sDirectChannels[0].lastOut = 0;
     sDirectChannels[1].curPlaySampleCount = 0;
     sDirectChannels[1].curPlaySamples = 0;
+    sDirectChannels[1].underrunCount = 0;
+    sDirectChannels[1].slewCount = 0;
+    sDirectChannels[1].lastOut = 0;
 }
 
 void gbas_setTimerReload(u32 timer, u16 reload)
