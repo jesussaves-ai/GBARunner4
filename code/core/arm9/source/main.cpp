@@ -199,6 +199,15 @@ static void loadGbaRom(const char* romPath)
     f_read(&gFile, &gRomHeader, sizeof(GbaHeader), &br);
     f_lseek(&gFile, ROM_LINEAR_GBA_ADDRESS - 0x08000000);
     f_read(&gFile, (void*)ROM_LINEAR_DS_ADDRESS, ROM_LINEAR_SIZE, &br);
+    // Rom images are powers of two, so the loaded size is block aligned. If the
+    // rom is smaller than the 2 MB linear window, mark the unused tail as
+    // unprogrammed (0xFF) so the DMA fast path, which now reads the linear
+    // window directly instead of going through SdCache, sees the same value that
+    // SdCache synthesizes for blocks past the end of the rom.
+    if (br < ROM_LINEAR_SIZE)
+    {
+        memset((void*)(ROM_LINEAR_DS_ADDRESS + br), 0xFF, ROM_LINEAR_SIZE - br);
+    }
 
     HarvestMoonPatches().TryApplyPatches(gRomHeader.gameCode);
     if (BadMixerPatch().TryApplyPatch())
