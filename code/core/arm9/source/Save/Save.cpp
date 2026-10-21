@@ -259,11 +259,12 @@ bool (*getSavePatchFunction(u16 type))(const SaveTypeInfo*, FIL*, u32, u8*)
 #define GAME_ID(a, b, c, d) \
     ((u32)(a) | ((u32)(b) << 8) | ((u32)(c) << 16) | ((u32)(d) << 24))
 
-/// @brief Compact game id override table. Kept in .rodata so it never consumes
-///        the scarce ITCM. The save types and sizes are derived from the mGBA
-///        cartridge override list, which is the community reference for titles
-///        whose SDK save tags are missing or ambiguous.
-[[gnu::section(".rodata")]]
+/// @brief Compact game id override table. Placed in .ewram (loaded from vramab,
+///        like sSaveTypeInfos) rather than .rodata so the chronically tight
+///        128 KB vrama region keeps headroom. The save types and sizes are
+///        derived from the mGBA cartridge override list, which is the community
+///        reference for titles whose SDK save tags are missing or ambiguous.
+[[gnu::section(".ewram")]]
 static const GameIdSaveOverride sGameIdSaveOverrides[] =
 {
     // 64 Kbit (8 KB) EEPROM titles.
