@@ -25,6 +25,12 @@
 #define STATUS_TILEMAP_ENTRIES  (32 * 32)
 #define STATUS_TILE_HALFWORDS   16              // 4bpp 8x8 tile = 32 bytes
 
+// Every cleared tilemap cell points at tile index 0, so index 0 MUST stay the
+// empty tile. Glyphs are stored from index 1 onwards; if they started at 0 the
+// first character of the string would be tiled across all 1,024 cells (the
+// green 'F'/'T' grid). This was the actual root cause of the corruption.
+#define STATUS_GLYPH_TILE_BASE  1
+
 // priority 0, char base 5, screen base 16, 32x32, 4bpp
 #define STATUS_BG0CNT_VALUE     ((16 << 8) | (5 << 2) | 0)
 
@@ -139,15 +145,19 @@ void StartupStatusIndicator::Show()
 
     const u32 length = (u32)strlen(text);
 
-    // Build one 4bpp tile per character (16-bit VRAM stores only).
+    // Build one 4bpp tile per character (16-bit VRAM stores only). Tile 0 is
+    // left blank because it is the tile every cleared map cell references, so
+    // the glyphs live at 1..length and the status row points at i + base.
     vu16* tiles = (vu16*)(STATUS_SUB_BG_BASE + STATUS_TILES_OFFSET);
+    writeGlyphTile(tiles, nullptr); // tile 0 = blank background tile
     for (u32 i = 0; i < length; i++)
-        writeGlyphTile(tiles + i * STATUS_TILE_HALFWORDS, findGlyph(text[i]));
+        writeGlyphTile(tiles + (i + STATUS_GLYPH_TILE_BASE) * STATUS_TILE_HALFWORDS,
+            findGlyph(text[i]));
 
     // Wipe the whole 32x32 tilemap before writing the status row. Bank C can
     // still hold leftovers from the border/splash/previous run and any stale
-    // entry would be drawn as a grid of garbage tiles (the green 'F'/'T'
-    // artifacting) behind and around the badge.
+    // entry would be drawn as a grid of garbage tiles behind and around the
+    // badge. Every wiped cell now resolves to the blank tile 0.
     vu16* tilemap = (vu16*)(STATUS_SUB_BG_BASE + STATUS_TILEMAP_OFFSET);
     for (u32 i = 0; i < STATUS_TILEMAP_ENTRIES; i++)
         tilemap[i] = 0;
@@ -156,15 +166,17 @@ void StartupStatusIndicator::Show()
     // border would be.
     const u32 startCol = (length < 32) ? (32 - length) / 2 : 0;
     for (u32 i = 0; i < length; i++)
-        tilemap[STATUS_ROW * 32 + startCol + i] = (u16)i;
+        tilemap[STATUS_ROW * 32 + startCol + i] = (u16)(i + STATUS_GLYPH_TILE_BASE);
 
     GFX_PLTT_BG_SUB[0] = STATUS_BACKDROP_COLOR;
     GFX_PLTT_BG_SUB[1] = twlMode ? STATUS_TWL_COLOR : STATUS_NTR_COLOR;
 
     REG_BG0CNT_SUB = STATUS_BG0CNT_VALUE;
-    // DISPLAY_BG0_ACTIVE: OR the sub BG0 enable into whatever sub layers are
-    // already active (no window is enabled yet, so BG0 is not masked out).
-    REG_DISPCNT_SUB |= (1 << 8); // enable sub BG0
+    // Force BG0 to be the only active sub layer. An |= here would leave any
+    // sub BG/OBJ/window layer enabled by an earlier boot stage live, which
+    // would render its own (uninitialised) VRAM over the badge. Bits 8..15 hold
+    // all the sub layer/window enables, so clear them and set BG0 only.
+    REG_DISPCNT_SUB = (REG_DISPCNT_SUB & ~0xFF00u) | (1 << 8); // MODE_0_2D | DISPLAY_BG0_ACTIVE
 }
 
 void StartupStatusIndicator::Clear()
