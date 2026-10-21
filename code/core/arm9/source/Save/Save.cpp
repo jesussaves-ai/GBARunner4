@@ -302,6 +302,15 @@ static const GameIdSaveOverride sGameIdSaveOverrides[] =
     {GAME_ID('K','Y','G','P'), SAVE_TYPE_EEPROM_V124, 8 * 1024},
     {GAME_ID('T','C','H','K'), SAVE_TYPE_EEPROM_V124, 8 * 1024}, // Aging cartridge
 
+    // 128 KB (1 Mbit) flash titles. mGBA force-selects FLASH1M for these, so a
+    // stripped/hacked rom with no usable SDK tag still gets the right save type
+    // instead of silently falling back to 32 KB SRAM. For a clean rom the
+    // detected FLASH1M_V1xx tag is authoritative and is preserved (only the size
+    // is corrected), so the version chosen here does not override it.
+    {GAME_ID('A','X','4','J'), SAVE_TYPE_FLASH1M_V103, 128 * 1024}, // Super Mario Advance 4
+    {GAME_ID('A','X','4','E'), SAVE_TYPE_FLASH1M_V103, 128 * 1024},
+    {GAME_ID('A','X','4','P'), SAVE_TYPE_FLASH1M_V103, 128 * 1024},
+
     // Titles that contain save tags but must not use a save chip, otherwise
     // they lock up or trigger anti-piracy checks.
     {GAME_ID('A','I','2','E'), SAVE_TYPE_NONE, 0}, // Iridion II
