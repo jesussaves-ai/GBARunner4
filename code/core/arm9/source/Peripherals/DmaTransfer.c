@@ -107,6 +107,12 @@ ITCM_CODE void dma_dmaTransfer(int channel)
         byteCount = count << 1;
     int srcStep = getSrcStep(control);
     u32 src = dma_state.channels[channel].curSrc;
+    if (src >= 0x08000000 && src < 0x0E000000)
+    {
+        // game pak sources always increment, including across repeat transfers,
+        // so the internal source pointer must advance by the forced step
+        srcStep = 1;
+    }
     dma_state.channels[channel].curSrc += srcStep * byteCount;
     int dstStep = getDstStep(control);
     u32 dst;
@@ -120,11 +126,6 @@ ITCM_CODE void dma_dmaTransfer(int channel)
         // reload
         dst = dmaIoBase->dst;
         dma_state.channels[channel].curDst = dst;
-    }
-    if (src >= 0x08000000 && src < 0x0E000000)
-    {
-        // rom always forces increment
-        srcStep = 1;
     }
     if (control & GBA_DMA_CONTROL_32BIT)
         dma_immTransfer32(src, dst, byteCount, srcStep, dstStep);
@@ -230,6 +231,11 @@ ITCM_CODE static u32 dmaIoBaseToChannel(const GbaDmaChannel* dmaIoBase)
 
 static inline void dma_immTransferRomSrc(u32 src, u32 dst, u32 byteCount, bool dma32)
 {
+    // Strip the 0x06000000 waitstate mirror bits (0x0A/0x0B/0x0C/0x0D -> the
+    // 0x08/0x09 rom region). The sd cache block table is indexed by the 25-bit
+    // rom offset, so a mirror left unnormalized would look up a block far past
+    // the end of the table (and read unrelated cache blocks / out of bounds).
+    src &= ~0x06000000;
     u8* dstPtr = (u8*)dst;
     do
     {
@@ -408,6 +414,11 @@ ITCM_CODE void dma_dmaSound(u32 channel)
     u32 control = dmaIoBase->control;
     u32 src = dma_state.channels[channel].curSrc;
     int srcStep = getSrcStep(control);
+    if (src >= 0x08000000 && src < 0x0E000000)
+    {
+        // game pak sources always increment, also for sound fifo dma
+        srcStep = 1;
+    }
     if (__builtin_expect(src >= 0x02000000, true))
     {
         dma_state.channels[channel].curSrc += srcStep * 16;
@@ -479,8 +490,11 @@ ITCM_CODE __attribute__((optimize("Os"))) static void dmaStartImmediate(int chan
     int srcStep = getSrcStep(control);
     if (src >= 0x08000000 && src < 0x0E000000)
     {
-        // rom always forces increment
+        // rom always forces increment; also normalize the 0x0A/0x0C waitstate
+        // mirrors so the irq-forbidden replacement range below refers to the
+        // real sd cache blocks that the transfer will actually read.
         srcStep = 1;
+        src &= ~0x06000000;
     }
     int dstStep = getDstStep(control);
     bool dma32 = control & GBA_DMA_CONTROL_32BIT;
