@@ -10,6 +10,16 @@
 #include "MemoryEmulator/RomDefs.h"
 #include "SaveFlash.h"
 
+// Flash chip manufacturer/device IDs returned through the patched SDK identify
+// routine (the game reads sFlashType.makerId/deviceId). Only Macronix is
+// emitted, and these are the standard IDs expected by the community flashcart
+// tools and mGBA ("Flash 1Mbit (Macronix, ID: 0x09C2)" for the 128 KB Pokémon
+// titles, "0x1CC2" for 64 KB). Other GBA flash vendors exist (Sanyo 0x62/0x13
+// 1M, SST 0xBF/0xD4, Atmel 0x1F/0x3D) but no shipped title requires them when
+// the SDK identify path is patched, and the low-level erase/program sequences
+// (0xAA/0x55, 0x80->0x10 chip erase, 0x80->0x30 sector erase, 0xA0 byte
+// program) are replaced entirely by direct file writes, so there is nothing to
+// model at the command level.
 #define MAKER_ID_MACRONIX           0xC2
 #define DEVICE_ID_MACRONIX_512K     0x1C
 #define DEVICE_ID_MACRONIX_1M       0x09
