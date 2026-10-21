@@ -9,7 +9,9 @@ extern u8 sdc_cache[SDC_BLOCK_COUNT][SDC_BLOCK_SIZE];
 
 /// @brief Maps rom blocks to their location in memory.
 ///        A value of 0 indicates the block is not loaded.
-///        This table includes pointers to the linearly loaded part of the rom.
+///        Blocks [0, ROM_LINEAR_SIZE / SDC_BLOCK_SIZE) are permanently
+///        pre-mapped to the linearly loaded rom window (ROM_LINEAR_DS_ADDRESS)
+///        so reads from the first 2 MB never go through the sd cache at all.
 extern void* sdc_romBlockToCacheBlock[SDC_ROM_BLOCK_COUNT];
 
 #ifdef __cplusplus
@@ -83,12 +85,42 @@ static inline const void* sdc_getRomBlockWithoutIrqYielding(u32 romAddress)
 }
 
 // Protection against a nested IRQ-driven rom load replacing a block that an
-// outer transfer is still reading is handled inside SdCache itself:
-// sdc_loadRomBlockDirect() pushes the active block onto a bounded stack and
-// loadRomBlock() refuses to pick those blocks as replacement victims. This is
-// re-entrant (each nesting level restores its parent's protection) and cannot
-// starve the evictable pool, so no caller-side forbidden-range bookkeeping is
-// required.
+// outer transfer is still reading is handled inside SdCache itself. In addition
+// to sdc_loadRomBlockDirect() pinning its own in-flight block during nested IRQ
+// dispatch, callers that hold a block pointer across an IRQ (the DMA fast path)
+// pin the active rom block explicitly.
+
+/// @brief Bounded LIFO pin stack of rom blocks whose cache buffer must not be
+///        replaced while an enclosing operation is still reading from it. This
+///        is what lets dma_immTransferRomSrc keep copying out of a 4 KB block
+///        across a nested IRQ (HBlank/VBlank/Sound DMA) without the block being
+///        evicted underneath it. The depth is bounded so the number of pinned
+///        blocks can never approach SDC_MIN_EVICTABLE_BLOCKS, and every pin is
+///        paired with an unpin that restores the parent's depth.
+#define SDC_MAX_ACTIVE_ROM_LOADS    8
+extern u32 sdc_activeRomLoadCount;
+extern u16 sdc_activeRomLoads[SDC_MAX_ACTIVE_ROM_LOADS];
+
+/// @brief Pins a rom block against cache replacement.
+/// @param romBlock The rom block index to pin.
+/// @return The previous stack depth, to be passed to sdc_unpinRomBlock().
+static inline u32 sdc_pinRomBlock(u32 romBlock)
+{
+    u32 depth = sdc_activeRomLoadCount;
+    if (depth < SDC_MAX_ACTIVE_ROM_LOADS)
+    {
+        sdc_activeRomLoads[depth] = (u16)romBlock;
+        sdc_activeRomLoadCount = depth + 1;
+    }
+    return depth;
+}
+
+/// @brief Unpins a rom block, restoring the depth returned by sdc_pinRomBlock().
+static inline void sdc_unpinRomBlock(u32 depth)
+{
+    if (depth < SDC_MAX_ACTIVE_ROM_LOADS)
+        sdc_activeRomLoadCount = depth;
+}
 
 /// @brief Initializes the sd cache.
 void sdc_init(void);
