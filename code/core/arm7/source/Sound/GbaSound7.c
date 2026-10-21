@@ -22,15 +22,15 @@ static bool sPaused;
 static s8 updateDirectChannel(gbas_direct_channel_t* channel, gbas_direct_channel7_t* channel7, u32 timerOverflows)
 {
     u32 samples = channel7->curPlaySamples;
-    // A SOUNDCNT_H reset strobe cleared this FIFO: drop the stale playback word
-    // so the new stream starts on its own first sample instead of the tail of
-    // the previous one.
+    // A SOUNDCNT_H reset strobe cleared this FIFO. Start a fresh FIFO word on
+    // the next timer overflow, but DO NOT force the held output sample to 0:
+    // real hardware holds the last DAC sample across a FIFO reset, and inserting
+    // a hard zero is an audible click. (Forcing 0 here caused crackle in
+    // streaming drivers that reset the FIFO mid-track.)
     if (channel->fifoReset)
     {
         channel->fifoReset = false;
         channel7->curPlaySampleCount = 0;
-        channel7->curPlaySamples = 0;
-        samples = 0;
     }
     // Nothing elapsed for this DS sample: sample-and-hold is correct.
     if (timerOverflows == 0)

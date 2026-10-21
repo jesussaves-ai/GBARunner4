@@ -22,8 +22,8 @@ typedef struct
 
     volatile bool dmaRequest;
     // Set by the ARM9 when a SOUNDCNT_H reset strobe clears this channel's FIFO;
-    // the ARM7 drops its cached playback word so the first sample of the new
-    // stream is emitted instead of the tail of the previous one (avoids a click).
+    // the ARM7 starts a fresh FIFO word on the next timer overflow (it holds the
+    // last DAC sample across the reset, so no click is inserted).
     volatile bool fifoReset;
 } gbas_direct_channel_t __attribute__((aligned(4)));
 
