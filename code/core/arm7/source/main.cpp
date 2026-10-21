@@ -59,6 +59,33 @@ static void checkSoftResetHotkey(void)
     }
 }
 
+// In-game backlight brightness cycle: L + R + Y. Y lives in REG_RCNT0_H/EXTKEYIN
+// (0x04000136) bit 1. PMIC register 4 is the DS-Lite/DSi backlight level
+// register; on the original DS registers 4..7 mirror register 0 (the control
+// register), so a naive write there would clobber the audio-amp enable/mute
+// bits. DS-Lite/DSi reads back a read-only high nibble of 4, so only cycle when
+// that signature is present (DS Phat and unknown hardware are left untouched).
+#define BACKLIGHT_KEY_LR        0x0300
+#define BACKLIGHT_KEY_Y         0x0002
+#define PMIC_BACKLIGHT_TWL_HI   0x40
+static bool sBacklightHotkeyHeld = false;
+
+static void checkBacklightHotkey(void)
+{
+    bool pressed = (REG_KEYINPUT & BACKLIGHT_KEY_LR) == 0 &&
+        (REG_RCNT0_H & BACKLIGHT_KEY_Y) == 0;
+    if (pressed && !sBacklightHotkeyHeld)
+    {
+        u8 backlight = pmic_readRegister(PMIC_REG_BACKLIGHT);
+        if ((backlight & 0xF0) == PMIC_BACKLIGHT_TWL_HI)
+        {
+            u8 level = (backlight + 1) & 0x3;
+            pmic_writeRegister(PMIC_REG_BACKLIGHT, (u8)((backlight & ~0x3) | level));
+        }
+    }
+    sBacklightHotkeyHeld = pressed;
+}
+
 static void vblankIrq(u32 irqMask)
 {
     rtos_signalEvent(&sVBlankEvent);
@@ -165,6 +192,7 @@ static void initializeArm7()
 static void updateArm7IdleState()
 {
     checkSoftResetHotkey();
+    checkBacklightHotkey();
     checkMcuIrq();
     sGbaSaveIpcService.Update();
 

@@ -23,6 +23,10 @@ public:
     void Reset();
     void UpdateRomRegisters();
 
+    /// @brief Enables the Boktai solar (light) sensor on the shared GPIO pins.
+    void SetLightSensorEnabled(bool enabled) { _lightSensorEnabled = enabled; }
+    bool IsLightSensorEnabled() const { return _lightSensorEnabled; }
+
     void WriteDataRegister(u16 value)
     {
         _outputData = value & RIO_PIN_MASK;
@@ -79,6 +83,9 @@ private:
 
     /// @brief The internal control register.
     u16 _control;
+
+    /// @brief Whether the shared pins also model a Boktai solar sensor.
+    bool _lightSensorEnabled = false;
 
     u32 GetGpioState()
     {

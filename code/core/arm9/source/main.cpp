@@ -593,6 +593,10 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     dma_init();
     gbas_init();
     gRomGpio.Initialize((rio_registers_t*)sdc_loadRomBlockForPatching(RIO_GBA_ADDRESS));
+    // Boktai 1/2/3 (U3I*/U32*/U33*) drive a solar light sensor on the same GPIO
+    // pins as the RTC; enable it for those game codes only so every other title
+    // keeps the plain S-3511A RTC behaviour.
+    gRomGpio.SetLightSensorEnabled((gRomHeader.gameCode & 0xFFFF) == static_cast<u32>('U' | ('3' << 8)));
     dc_flushRange((void*)ROM_LINEAR_DS_ADDRESS, ROM_LINEAR_SIZE);
     dc_flushRange(gGbaBios, sizeof(gGbaBios));
     ic_invalidateAll();
