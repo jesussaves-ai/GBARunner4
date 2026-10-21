@@ -11,9 +11,23 @@
 #include "VirtualMachine/VMNestedIrq.h"
 #include "GbaDma.h"
 #include "MemoryEmulator/RomDefs.h"
+#include "JitPatcher/JitCommon.h"
 #include "DmaTransfer.h"
 
 DTCM_DATA dma_state_t dma_state;
+
+/// @brief After a DMA has written into IWRAM/EWRAM, synchronize JIT and cache
+///        state if that range had been JIT-processed as code. A single compare
+///        for every other destination (VRAM, IO, ROM). The heavy work lives in
+///        the cold jit_invalidateCodeRange() .text helper.
+static inline void dma_syncCodeAfterWramWrite(u32 dst, u32 byteCount)
+{
+    u32 region = dst >> 24;
+    if (region == 2 || region == 3)
+    {
+        jit_invalidateCodeRange(dst, byteCount);
+    }
+}
 
 void dma_immTransfer16(u32 src, u32 dst, u32 byteCount, int srcStep, int dstStep);
 void dma_immTransfer32(u32 src, u32 dst, u32 byteCount, int srcStep, int dstStep);
@@ -131,6 +145,7 @@ ITCM_CODE void dma_dmaTransfer(int channel)
         dma_immTransfer32(src, dst, byteCount, srcStep, dstStep);
     else
         dma_immTransfer16(src, dst, byteCount, srcStep, dstStep);
+    dma_syncCodeAfterWramWrite(dst, byteCount);
     triggerDmaIrqIfEnabled(channel, control);
     if (!(control & GBA_DMA_CONTROL_REPEAT))
     {
@@ -537,6 +552,7 @@ ITCM_CODE __attribute__((optimize("Os"))) static void dmaStartImmediate(int chan
         dma_immTransfer32(src, dst, byteCount, srcStep, dstStep);
     else
         dma_immTransfer16(src, dst, byteCount, srcStep, dstStep);
+    dma_syncCodeAfterWramWrite(dst, byteCount);
     if (channel == 3)
     {
         vm_disableNestedIrqs();
