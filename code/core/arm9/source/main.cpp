@@ -313,6 +313,22 @@ static bool shouldMountDsiSd(int argc, char* argv[])
     return true;
 }
 
+/// @brief Keeps the boot diagnostics badge on screen long enough to actually read
+///        on real hardware (~60 frames / ~1 s), or until A or Start is pressed
+///        to skip straight to the game. Polls VCOUNT so it works after the
+///        splash VBlank handler has been stopped.
+static void holdBootBadge()
+{
+    for (u32 frames = 0; frames < 60; frames++)
+    {
+        // GBA/DS REG_KEYINPUT is active LOW: A (bit 0) or Start (bit 3).
+        if ((*(volatile u16*)0x04000130 & 0x0009) == 0)
+            break;
+        while (*(volatile u16*)0x04000006 < 160);  // wait for vblank start
+        while (*(volatile u16*)0x04000006 >= 160); // wait for vblank end
+    }
+}
+
 static void applyGameJitPatches()
 {
     gLogger->Log(LogLevel::Debug, "Applying game JIT patches...\n");
@@ -532,9 +548,12 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
         romExtension[4] = '\0';
     }
     loadGameSpecificSettings();
+    // The game code is known now (header offset 0xAC). Show it with a placeholder
+    // save type immediately, so row 21 is never blank while the slow rom
+    // signature scan in handleSave() runs.
+    StartupStatusIndicator::ShowGameInfo(gRomHeader.gameCode, "SCANNING...");
     handleSave(romPath);
-    // The rom header and the resolved save type are now known; render the second
-    // diagnostic line on the boot badge (the first line was drawn by Show()).
+    // The save type is resolved now; update row 21 to the final value.
     StartupStatusIndicator::ShowGameInfo(gRomHeader.gameCode, sSaveTypeText);
     // The save tag scanner uses sdc_cache directly as a scratch buffer, which
     // overwrites the first blocks without updating the rom block mapping. Drop
@@ -546,6 +565,9 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     stopSplashScreenAnimation();
     delete sSplashScreen;
     sSplashScreen = nullptr;
+
+    // Hold the badge so both diagnostic lines and the branding are readable.
+    holdBootBadge();
 
     // The boot status badge has served its purpose; remove it before the GBA
     // display and border take over the sub screen.

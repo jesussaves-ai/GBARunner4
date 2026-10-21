@@ -35,11 +35,13 @@
 // priority 0, char base 5, screen base 16, 32x32, 4bpp
 #define STATUS_BG0CNT_VALUE     ((16 << 8) | (5 << 2) | 0)
 
-// Sub screen text rows for the two diagnostic lines. The interior of the
-// border spans rows 2..21, so the id/save line sits just above the bottom
-// border and the environment line two rows higher.
+// Sub screen text rows for the diagnostic lines. The interior of the border
+// spans rows 2..21, so the id/save line sits just above the bottom border and
+// the environment line two rows higher, with the fork branding above that.
+#define STATUS_ROW_BRAND        17
 #define STATUS_ROW_ENV          19
 #define STATUS_ROW_GAME         21
+#define STATUS_BRAND_TEXT       "GBARUNNER4 BY JESUS SAVES"
 #define STATUS_BACKDROP_COLOR   0x0000
 #define STATUS_TWL_COLOR        0x03E0          // green
 #define STATUS_NTR_COLOR        0x4210          // light gray
@@ -59,7 +61,10 @@ struct StatusGlyph
 
 // A complete 5x7 ASCII font (space, A-Z, 0-9 and ':|-/?' plus a '?' fallback)
 // so any 4-character game code and any save-type description renders crisply.
-// Kept in .rodata and out of the precious ITCM.
+// Placed in .ewram (loaded from vramab at boot, like sSaveTypeInfos) because the
+// 128 KB vrama region holding .text/.rodata/.bss is very tight, and it costs
+// none of the scarce ITCM.
+[[gnu::section(".ewram")]]
 constexpr StatusGlyph sGlyphs[] =
 {
     { ' ', { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 } },
@@ -222,6 +227,7 @@ void StartupStatusIndicator::Show()
         tilemap[i] = 0;
 
     renderRow(STATUS_ROW_ENV, text);
+    renderRow(STATUS_ROW_BRAND, STATUS_BRAND_TEXT);
 
     GFX_PLTT_BG_SUB[0] = STATUS_BACKDROP_COLOR;
     GFX_PLTT_BG_SUB[1] = twlMode ? STATUS_TWL_COLOR : STATUS_NTR_COLOR;
