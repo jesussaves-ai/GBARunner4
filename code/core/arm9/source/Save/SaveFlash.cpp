@@ -74,7 +74,13 @@ static u32 verifyFlash(u16 secNo, const u8* src, u32 size)
 
 static u16 eraseFlashChip()
 {
-    for (u32 i = 0; i < sizeof(gSaveData); ++i)
+    // Erase the whole flash chip: the SDK chip-erase entry point must clear the
+    // full 64 KB (512K) or 128 KB (1M) device, not just the 32 KB gSaveData
+    // cache. Erasing only 32 KB left the upper flash region stale, so a title
+    // that chip-erases and then verifies the device (Pokemon R/S/E, Golden Sun,
+    // ...) saw leftover data and failed the save check. sFlashType.saveSize is
+    // set by initializeFlash512/initializeFlash1M before this SWI is reachable.
+    for (u32 i = 0; i < sFlashType.saveSize; ++i)
     {
         sav_writeSaveByteToFileFromUserMode(i, 0xFF);
     }
