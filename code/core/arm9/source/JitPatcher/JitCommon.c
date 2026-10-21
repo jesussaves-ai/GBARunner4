@@ -134,6 +134,28 @@ void jit_ensureBlockJitted(void* ptr)
 #define JIT_CHUNK_SHIFT     4
 #define JIT_CHUNK_BYTES     (1 << JIT_CHUNK_SHIFT)
 
+/// @brief Clears the processed and aux words covering [firstChunk, lastChunk].
+///        Returns true if any processed bit was set.
+static bool jit_clearChunkRange(u32* procWords, u32* auxWords, u32 firstChunk, u32 lastChunk)
+{
+    u32 firstWord = firstChunk >> 2;
+    u32 lastWord = lastChunk >> 2;
+    bool anySet = false;
+    for (u32 i = firstWord; i <= lastWord; i++)
+    {
+        if (procWords[i] != 0)
+        {
+            procWords[i] = 0;
+            anySet = true;
+        }
+        if (auxWords[i] != 0)
+        {
+            auxWords[i] = 0;
+        }
+    }
+    return anySet;
+}
+
 void jit_invalidateCodeRange(u32 gbaAddress, u32 byteCount)
 {
     if (!gJitPatcherActive)
@@ -172,60 +194,58 @@ void jit_invalidateCodeRange(u32 gbaAddress, u32 byteCount)
     if (byteCount == 0)
         return;
 
-    u32 firstChunk = offset >> JIT_CHUNK_SHIFT;
-    u32 lastChunk = (offset + byteCount - 1) >> JIT_CHUNK_SHIFT;
-    if (lastChunk >= chunkCount)
-        lastChunk = chunkCount - 1;
+    u32* procWords = (u32*)procBits;
+    u32* auxWords = (u32*)auxBits;
+    u32 regionBytes = chunkCount << JIT_CHUNK_SHIFT;
+    u32 end = offset + byteCount;
 
     // Scan and clear whole words (a word covers 4 chunks = 64 bytes). Clearing a
     // few extra chunks at the range edges is harmless: it only forces those
-    // bytes to be re-jitted, and they were not overwritten by this DMA.
-    u32* procWords = (u32*)procBits;
-    u32* auxWords = (u32*)auxBits;
-    u32 firstWord = firstChunk >> 2;
-    u32 lastWord = lastChunk >> 2;
-
+    // bytes to be re-jitted, and they were not overwritten by this transfer.
+    // The +1 chunk also covers a Thumb BL pair (or ARM instruction) that
+    // straddles the exclusive end of the range.
     bool anySet = false;
-    for (u32 i = firstWord; i <= lastWord; i++)
+    if (end <= regionBytes)
     {
-        if (procWords[i] != 0)
-        {
-            procWords[i] = 0;
+        u32 lastChunk = ((end - 1) >> JIT_CHUNK_SHIFT) + 1;
+        if (lastChunk >= chunkCount)
+            lastChunk = chunkCount - 1;
+        anySet = jit_clearChunkRange(procWords, auxWords, offset >> JIT_CHUNK_SHIFT, lastChunk);
+    }
+    else
+    {
+        // The range wraps a mirror (e.g. an EWRAM transfer crossing 0x0203FFFF
+        // continues at 0x02000000). The guest writes both the tail and the
+        // wrapped head, so the JIT bits must be cleared for both halves.
+        anySet = jit_clearChunkRange(procWords, auxWords, offset >> JIT_CHUNK_SHIFT, chunkCount - 1);
+        u32 wrappedEnd = end - regionBytes;
+        u32 lastChunk = ((wrappedEnd - 1) >> JIT_CHUNK_SHIFT) + 1;
+        if (lastChunk >= chunkCount)
+            lastChunk = chunkCount - 1;
+        if (jit_clearChunkRange(procWords, auxWords, 0, lastChunk))
             anySet = true;
-        }
-        if (auxWords[i] != 0)
-        {
-            auxWords[i] = 0;
-        }
     }
 
     if (!anySet)
     {
-        return; // pure data DMA: the bit table was already clear
+        return; // pure data transfer: the bit table was already clear
     }
 
-    // The range held JIT-processed (executing) code. Clean the freshly written
-    // bytes to memory and drop stale instruction-cache lines so the new code is
+    // The range held JIT-processed (executing) code. IWRAM/EWRAM are write-through
+    // (MPU C=1, B=0), so the freshly written bytes are already in memory; the
+    // flush is defensive. Drop stale instruction-cache lines so the new code is
     // fetched and re-jitted instead of the previous contents running.
-    u32 dsAddress;
-    u32 regionEnd;
-    if (gbaAddress >= 0x03000000)
+    u32 regionBase = (gbaAddress >= 0x03000000) ? 0x03000000u : 0x02000000u;
+    u32 regionEnd = (gbaAddress >= 0x03000000) ? 0x03008000u : 0x02040000u;
+    u32 dsAddress = regionBase | offset;
+    u32 flushLen = byteCount;
+    if (dsAddress + flushLen > regionEnd)
+        flushLen = regionEnd - dsAddress;
+    if (flushLen != 0)
     {
-        dsAddress = 0x03000000u | (gbaAddress & 0x7FFFu);
-        regionEnd = 0x03008000u;
+        u32 aligned = dsAddress & ~0x1Fu;
+        dc_flushRange((void*)aligned, flushLen + (dsAddress - aligned));
     }
-    else
-    {
-        dsAddress = 0x02000000u | (gbaAddress & 0x3FFFFu);
-        regionEnd = 0x02040000u;
-    }
-    if (dsAddress + byteCount > regionEnd)
-        byteCount = regionEnd - dsAddress;
-    if (byteCount == 0)
-        return;
-
-    u32 aligned = dsAddress & ~0x1Fu;
-    dc_flushRange((void*)aligned, byteCount + (dsAddress - aligned));
     dc_drainWriteBuffer();
     ic_invalidateAll();
 }
