@@ -1,4 +1,4 @@
-.section ".itcm", "ax"
+.section ".text", "ax"
 
 #include "AsmMacros.inc"
 

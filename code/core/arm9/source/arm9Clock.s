@@ -1,4 +1,4 @@
-.section ".itcm", "ax"
+.section ".text", "ax"
 .arm
 
 #define REG_SCFG_CLK        0x04004004

@@ -11,7 +11,7 @@
 [[gnu::section(".ewram.bss")]]
 jit_state_t gJitState;
 
-[[gnu::section(".itcm"), gnu::optimize("Oz")]]
+[[gnu::optimize("Oz")]]
 u32 jit_getJitBitsOffset(const void* ptr)
 {
     u32 jitBitsOffset;
@@ -88,7 +88,6 @@ void* jit_findBlockEnd(const void* ptr)
     return (void*)0xFFFFFFFF;
 }
 
-[[gnu::section(".itcm")]]
 bool jit_isBlockJitted(void* ptr)
 {
     if ((u32)ptr >= ROM_LINEAR_GBA_ADDRESS)
@@ -101,7 +100,6 @@ bool jit_isBlockJitted(void* ptr)
     return (*jitBits >> bitIdx) & 1;
 }
 
-[[gnu::section(".itcm")]]
 void jit_ensureBlockJitted(void* ptr)
 {
     if ((u32)ptr >= ROM_LINEAR_GBA_ADDRESS)

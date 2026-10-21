@@ -5,7 +5,9 @@
 #include "MemoryEmulator/RomDefs.h"
 #include "SelfModifyingPatches.h"
 
-[[gnu::section(".itcm")]]
+// Staging buffer for generated self-modifying-write patch code. It is copied
+// into the patch SWI table and executed only on the rare self-modifying writes,
+// so it does not need to live in the scarce ITCM.
 static u32 sPatchCodeBuffer[16 * 3];
 
 void SelfModifyingPatches::PatchSelfModifyingWrite(u32 gbaAddress)
@@ -128,4 +130,8 @@ void SelfModifyingPatches::ApplyPatches(const RunSettings& runSettings)
             PatchSelfModifyingWrite(address);
         }
     }
+    // The generated patch code now lives in cached main memory (.bss) instead of
+    // uncached ITCM, so it must be cleaned to memory before the instruction cache
+    // (invalidated later in gbaRunnerMain) can fetch and execute it.
+    dc_flushRange(sPatchCodeBuffer, sizeof(sPatchCodeBuffer));
 }
