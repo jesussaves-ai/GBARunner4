@@ -68,7 +68,7 @@ arm_func vm_restoreIrqYielding
     str r0, [r1]
     bx lr
 
-.section ".itcm", "ax"
+.section ".text", "ax"
 
 arm_func vm_yieldGbaIrqs
     mrs r0, cpsr
