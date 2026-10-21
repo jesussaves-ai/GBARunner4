@@ -124,7 +124,7 @@ __attribute__((optimize("Os"))) void sav_initializeSave(const SaveTypeInfo* save
 
     gGbaSaveShared.saveState = GBA_SAVE_STATE_CLEAN;
     sSkipSaveCheckInstruction = emu_vblankIrqSkipSaveCheckInstruction;
-    if (!saveTypeInfo || (saveTypeInfo->type & SAVE_TYPE_SRAM))
+    if (!saveTypeInfo || (saveTypeInfo->type & SAVE_TYPE_MASK) == SAVE_TYPE_SRAM)
     {
         gGbaSaveShared.saveData = gSaveData;
         gGbaSaveShared.saveDataSize = saveSize;
@@ -146,7 +146,10 @@ __attribute__((optimize("Os"))) void sav_initializeSave(const SaveTypeInfo* save
 extern "C" u8 sav_readSaveByteFromFile(u32 saveAddress)
 {
     vm_enableNestedIrqs();
-    u8 saveByte;
+    // Default to the unprogrammed-save value so that a read past the end of the
+    // save file (or a failed f_read) never returns stack garbage. A garbage byte
+    // could make a game's verify loop spin or report a corrupted save.
+    u8 saveByte = SAVE_DATA_FILL;
     if (Environment::IsIsNitroEmulator())
     {
         // save buffer in extended memory
@@ -157,7 +160,10 @@ extern "C" u8 sav_readSaveByteFromFile(u32 saveAddress)
         // write to file
         f_lseek(&gSaveFile, saveAddress);
         UINT bytesRead = 0;
-        f_read(&gSaveFile, &saveByte, 1, &bytesRead);
+        if (f_read(&gSaveFile, &saveByte, 1, &bytesRead) != FR_OK || bytesRead != 1)
+        {
+            saveByte = SAVE_DATA_FILL;
+        }
     }
     vm_disableNestedIrqs();
     return saveByte;

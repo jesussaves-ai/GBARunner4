@@ -205,6 +205,14 @@ bool flash_patchV120(const SaveTypeInfo* saveTypeInfo, FIL* romFile, u32 tagRomA
         return false;
     }
 
+    // Capture the SDK read/verify entry points before the whole-rom signature
+    // search below. sdc_searchRomSignature walks the paged high rom through the
+    // shared sd cache and can evict the cache blocks that back tempBuffer
+    // (= sdc_cache[0]), so re-reading these offsets after the search would patch
+    // a garbage address and corrupt unrelated rom.
+    u32 readRomAddress = *(u32*)(tempBuffer + FLASH_V120_OFFSET_READ);
+    u32 verifySectorRomAddress = *(u32*)(tempBuffer + FLASH_V120_OFFSET_VERIFY_SECTOR);
+
     // Search the whole rom (not just the linearly mapped 2 MB) so titles whose
     // flash code lives in the paged high rom still get patched.
     if (!sav_tryPatchFunction(sIdentifyFlashV120Sig, 0, (void*)identifyFlash512))
@@ -213,10 +221,10 @@ bool flash_patchV120(const SaveTypeInfo* saveTypeInfo, FIL* romFile, u32 tagRomA
     }
 
     sav_swiTable[1] = (void*)readFlash;
-    sav_patchRomFunction(*(u32*)(tempBuffer + FLASH_V120_OFFSET_READ), 1);
+    sav_patchRomFunction(readRomAddress, 1);
 
     sav_swiTable[2] = (void*)verifyFlashSector;
-    sav_patchRomFunction(*(u32*)(tempBuffer + FLASH_V120_OFFSET_VERIFY_SECTOR), 2);
+    sav_patchRomFunction(verifySectorRomAddress, 2);
 
     initializeFlash512();
     return true;
@@ -229,6 +237,11 @@ bool flash_patchV123(const SaveTypeInfo* saveTypeInfo, FIL* romFile, u32 tagRomA
         return false;
     }
 
+    // See flash_patchV120: capture before the cache-walking search clobbers
+    // tempBuffer.
+    u32 readRomAddress = *(u32*)(tempBuffer + FLASH_V120_OFFSET_READ);
+    u32 verifySectorRomAddress = *(u32*)(tempBuffer + FLASH_V120_OFFSET_VERIFY_SECTOR);
+
     // Search the whole rom (not just the linearly mapped 2 MB) so titles whose
     // flash code lives in the paged high rom still get patched.
     if (!sav_tryPatchFunction(sIdentifyFlashV123Sig, 0, (void*)identifyFlash512))
@@ -237,10 +250,10 @@ bool flash_patchV123(const SaveTypeInfo* saveTypeInfo, FIL* romFile, u32 tagRomA
     }
 
     sav_swiTable[1] = (void*)readFlash;
-    sav_patchRomFunction(*(u32*)(tempBuffer + FLASH_V120_OFFSET_READ), 1);
+    sav_patchRomFunction(readRomAddress, 1);
 
     sav_swiTable[2] = (void*)verifyFlashSector;
-    sav_patchRomFunction(*(u32*)(tempBuffer + FLASH_V120_OFFSET_VERIFY_SECTOR), 2);
+    sav_patchRomFunction(verifySectorRomAddress, 2);
 
     initializeFlash512();
     return true;
@@ -253,16 +266,21 @@ bool flash_patchV126(const SaveTypeInfo* saveTypeInfo, FIL* romFile, u32 tagRomA
         return false;
     }
 
+    // See flash_patchV120: capture before the cache-walking searches clobber
+    // tempBuffer.
+    u32 readRomAddress = *(u32*)(tempBuffer + FLASH_V120_OFFSET_READ);
+    u32 verifySectorRomAddress = *(u32*)(tempBuffer + FLASH_V120_OFFSET_VERIFY_SECTOR);
+
     if (!sav_tryPatchFunction(sIdentifyFlashV123Sig, 0, (void*)identifyFlash512))
     {
         return false;
     }
 
     sav_swiTable[1] = (void*)readFlash;
-    sav_patchRomFunction(*(u32*)(tempBuffer + FLASH_V120_OFFSET_READ), 1);
+    sav_patchRomFunction(readRomAddress, 1);
 
     sav_swiTable[2] = (void*)verifyFlashSector;
-    sav_patchRomFunction(*(u32*)(tempBuffer + FLASH_V120_OFFSET_VERIFY_SECTOR), 2);
+    sav_patchRomFunction(verifySectorRomAddress, 2);
 
     if (sav_tryPatchFunction(sVerifyFlashV126Sig, 3, (void*)verifyFlash))
     {
