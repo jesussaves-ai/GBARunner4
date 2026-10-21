@@ -51,3 +51,18 @@ void Environment::Initialize()
             _flags |= ENVIRONMENT_FLAGS_NOCASH_PRINT;
     }
 }
+
+bool Environment::HasExtendedMainMemory()
+{
+    if (!IsDsiMode())
+        return false;
+    // SCFG_EXT bits 14-15 hold the main RAM limit: 0..1 = 4 MB (NTR), 2 = 16 MB
+    // (DSi), 3 = 32 MB (DSi debugger). Only the 16 MB+ settings leave the
+    // 0x02400000-0x02FFFFFF extended window usable.
+    return ((*(vu32*)0x04004008) >> 14 & 3) >= 2;
+}
+
+extern "C" int env_hasExtendedMainMemory(void)
+{
+    return Environment::HasExtendedMainMemory() ? 1 : 0;
+}

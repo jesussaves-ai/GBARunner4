@@ -15,6 +15,11 @@ MEMORY
 	vrama	: ORIGIN = 0x06800000, LENGTH = 128K
 	vramab	: ORIGIN = 0x06800000, LENGTH = 256K
 	vramhi  : ORIGIN = 0x06898000, LENGTH = 48K
+	/* DSi-only main memory above the 4 MB NTR window (0x02400000-0x02FFFFFF).
+	   Only referenced when running in TWL mode; on NTR hardware the linker
+	   still reserves the address range but crt0 never touches it. The top of
+	   the range is left free for the DSi header at 0x02FFE000. */
+	dsiram  : ORIGIN = 0x02400000, LENGTH = 12M
 }
 
 PHDRS
@@ -271,6 +276,21 @@ SECTIONS
 
 	__vramhi_bss_end = . ;
 	__vramhi_bss_end__ = . ;
+
+	/* DSi extended-memory pool (SdCache + JIT dynamic bit tables in TWL mode).
+	   Marked NOLOAD and intentionally NOT cleared by crt0: the range only
+	   exists on DSi hardware, and the owning init routines reset the parts
+	   they actually use. */
+	.dsiram.bss (NOLOAD):
+	{
+		__dsiram_bss_start = ABSOLUTE(.);
+		__dsiram_bss_start__ = ABSOLUTE(.);
+		*(.dsiram.bss*)
+		. = ALIGN(4);    /* REQUIRED. LD is flaky without it. */
+	} >dsiram :NONE
+
+	__dsiram_bss_end = . ;
+	__dsiram_bss_end__ = . ;
 
 	.bss __bss_vma (NOLOAD):
 	{

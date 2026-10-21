@@ -122,4 +122,15 @@ extern "C" void setupMemoryProtection()
 
     for (u32 i = 0; i < s_regionCount; i++)
         mpu_setRegionBaseAndSize(static_cast<MpuRegion>(i), s_regionBaseAndSizes[i]);
+
+    // On DSi/TWL hardware the main memory window is 16 MB, so extend the cached
+    // main memory region (region 1) beyond the NTR 4 MB limit. This keeps the
+    // SdCache DSi pool at 0x02400000-0x02FFFFFF data/instruction cacheable,
+    // matching the NTR pool's behaviour. On NTR the 4 MB setting is preserved.
+    // The higher-numbered regions (linear ROM, GBA EWRAM/IWRAM) keep priority.
+    if (((*(volatile u32*)0x04004000) & 3) == 1)
+    {
+        mpu_setRegionBaseAndSize(MPU_REGION_1,
+            MakeRegionBaseAndSize(0x02000000, MPU_REGION_SIZE_16MB));
+    }
 }

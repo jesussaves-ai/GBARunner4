@@ -4,8 +4,18 @@
 #include "cp15.h"
 #include "VirtualMachine/VMNestedIrq.h"
 
-/// @brief The sd cache blocks.
-extern u8 sdc_cache[SDC_BLOCK_COUNT][SDC_BLOCK_SIZE];
+/// @brief The active sd cache pool. Selected at runtime by sdc_init(): the 1 MB
+///        NTR buffer on DS/DS Lite, or the 8 MB DSi extended-memory pool on
+///        TWL hardware. Kept as a pointer so the same code serves both pools.
+extern u8 (*sdc_cache)[SDC_BLOCK_SIZE];
+
+/// @brief The NTR (DS/DS Lite) 1 MB cache pool. Statically allocated in
+///        .ewram.bss; only used when no DSi extended memory is available.
+extern u8 sdc_cacheNtr[SDC_NTR_SIZE];
+
+/// @brief Number of usable 4 KB blocks in the active pool (256 on NTR,
+///        2048 on TWL).
+extern u32 sdc_blockCount;
 
 /// @brief Maps rom blocks to their location in memory.
 ///        A value of 0 indicates the block is not loaded.

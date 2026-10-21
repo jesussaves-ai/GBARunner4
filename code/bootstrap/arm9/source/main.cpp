@@ -1,4 +1,5 @@
 #include <nds.h>
+#include <nds/system.h>
 #include <libtwl/rtos/rtosIrq.h>
 #include <libtwl/mem/memVram.h>
 #include <libtwl/ipc/ipcFifo.h>
@@ -15,6 +16,45 @@
 #define HANDSHAKE_PART0     0xA
 #define HANDSHAKE_PART1     0xB
 #define HANDSHAKE_PART2     0xC
+
+#define SCFG_CLK_CPU_SPEED  1
+
+/// @brief Returns true when the binary is running on a DSi/3DS/DSpico in TWL
+///        mode. Both libnds' isDSiMode() and the SCFG mode bits are checked so
+///        that the detection also works when the launcher did not populate
+///        libnds' __dsimode global.
+static bool isTwlMode()
+{
+    if (isDSiMode())
+        return true;
+    return (REG_SCFG_ROM & 3) == 1;
+}
+
+/// @brief Switches the ARM9 to 134 MHz (TWL mode) when running on DSi hardware.
+///        On a stock DS/DS Lite this is a no-op, so the exact same binary keeps
+///        booting and running at 67 MHz. This is the libnds-era equivalent of
+///        powerSetCpuSpeed(PM_SPEED_DOUBLE): REG_SCFG_CLK bit 0 selects the
+///        ARM9 clock source.
+static void boostArm9ClockIfTwl()
+{
+    if (!isTwlMode())
+        return;
+
+    if (REG_SCFG_CLK & SCFG_CLK_CPU_SPEED)
+        return; // already running at 134 MHz
+
+    // The clock switch must be atomic with respect to interrupts.
+    u32 oldIme = REG_IME;
+    REG_IME = 0;
+
+    REG_SCFG_CLK |= SCFG_CLK_CPU_SPEED;
+
+    // Allow the clock switch to stabilize (mirrors scfg_setArm9Clock).
+    for (u32 i = 0; i < 8; i++)
+        __asm volatile("nop");
+
+    REG_IME = oldIme;
+}
 
 typedef void (*gbarunner9_func_t)(int argc, char* argv[]);
 
@@ -79,6 +119,11 @@ int main(int argc, char* argv[])
     REG_IME = 0;
     rtos_disableIrqMask(~0u);
     rtos_ackIrqMask(~0u);
+
+    // Detect DSi/TWL hardware as early as possible and run the ARM9 at
+    // 134 MHz. On a stock DS/DS Lite this is a no-op (67 MHz), so the same
+    // unified binary boots on every target.
+    boostArm9ClockIfTwl();
 
     initIpc();
     tryInitDldi();
