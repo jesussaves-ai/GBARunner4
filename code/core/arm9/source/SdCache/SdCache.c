@@ -45,15 +45,16 @@ static u32 sTabuBlocks[2];
 
 /// @brief Rom blocks whose cache buffer is currently in flight (or has just
 ///        been loaded) and must therefore not be picked as a replacement victim
-///        while an enclosing rom load still reads it. A small stack is used so
-///        that nested HBlank/VBlank/Sound DMA rom loads can neither evict an
-///        outer transfer's active block nor clobber the outer protection on
-///        exit. The bounded depth also bounds the number of simultaneously
-///        forbidden blocks, so a huge transfer can never forbid more blocks than
-///        the evictable pool (which is always >= SDC_MIN_EVICTABLE_BLOCKS).
-#define SDC_MAX_ACTIVE_ROM_LOADS    4
-static u32 sActiveRomLoadCount;
-static u16 sActiveRomLoads[SDC_MAX_ACTIVE_ROM_LOADS];
+///        while an enclosing rom load still reads it. The pin stack is bounded
+///        (see SDC_MAX_ACTIVE_ROM_LOADS) so a huge transfer can never forbid more
+///        blocks than the evictable pool, which is always at least
+///        SDC_MIN_EVICTABLE_BLOCKS.
+u32 sdc_activeRomLoadCount;
+u16 sdc_activeRomLoads[SDC_MAX_ACTIVE_ROM_LOADS];
+
+/// @brief Number of 4 KB rom blocks that are permanently resident in the linear
+///        window in main memory (the first 2 MB of the rom).
+#define SDC_LINEAR_ROM_BLOCK_COUNT   (ROM_LINEAR_SIZE / SDC_BLOCK_SIZE)
 
 [[gnu::section(".ewram.bss")]]
 static DWORD sClusterTable[512];
@@ -134,16 +135,20 @@ void sdc_patchRom(u32 gbaAddress, u32 value, u32 size)
         sRomPatchCount++;
     }
 
-    // Apply to the sd cache block that serves both data reads and paged
-    // high-rom execution, so `hic_mapRomBlock` always sees the patched code.
-    writePatchValue(sdc_loadRomBlockForPatching(gbaAddress), value, size);
-
-    // For the linearly mapped window the GBA executes the copy in main memory,
-    // so keep that one in sync as well.
     if (gbaAddress >= ROM_LINEAR_GBA_ADDRESS && gbaAddress < ROM_LINEAR_END_GBA_ADDRESS)
     {
+        // The linearly mapped window lives permanently in main memory and is
+        // never evicted, so write it directly. It is deliberately not loaded
+        // into (and does not consume a permanent slot of) the sd cache.
         writePatchValue(
             (u8*)(gbaAddress - ROM_LINEAR_GBA_ADDRESS + ROM_LINEAR_DS_ADDRESS), value, size);
+    }
+    else
+    {
+        // Paged high rom: apply to the resident sd cache block that serves both
+        // data reads and paged high-rom execution, so `hic_mapRomBlock` always
+        // sees the patched code. sRomPatchEntries re-applies it after eviction.
+        writePatchValue(sdc_loadRomBlockForPatching(gbaAddress), value, size);
     }
 }
 
@@ -209,7 +214,12 @@ void sdc_invalidateCacheBlockRange(u32 firstBlock, u32 blockCount)
         u32 romBlock = sCacheBlockToRomBlock[i];
         if (romBlock != SDC_ROM_BLOCK_INVALID)
         {
-            sdc_romBlockToCacheBlock[romBlock] = NULL;
+            // The linearly mapped window entries are permanent and never live in
+            // the sd cache, so they must never be dropped here.
+            if (romBlock >= SDC_LINEAR_ROM_BLOCK_COUNT)
+            {
+                sdc_romBlockToCacheBlock[romBlock] = NULL;
+            }
             sCacheBlockToRomBlock[i] = SDC_ROM_BLOCK_INVALID;
         }
     }
@@ -345,11 +355,11 @@ static void* loadRomBlock(u32 romBlock, u32 cacheBlock)
             {
                 break;
             }
-            u32 activeRomLoads = sActiveRomLoadCount;
+            u32 activeRomLoads = sdc_activeRomLoadCount;
             bool isActiveRomLoad = false;
             for (u32 i = 0; i < activeRomLoads; i++)
             {
-                if (sActiveRomLoads[i] == oldRomBlock)
+                if (sdc_activeRomLoads[i] == oldRomBlock)
                 {
                     isActiveRomLoad = true;
                     break;
@@ -420,27 +430,28 @@ const void* sdc_loadRomBlockDirect(u32 romAddress)
 
     // Protect the block being loaded (and the cache buffer it is being filled
     // into) from replacement by a nested IRQ driven rom load until we are done
-    // with it. The stack depth is restored on exit, so nesting is re-entrant and
-    // a nested HBlank/VBlank/Sound DMA restores the enclosing protection.
-    u32 activeRomLoads = sActiveRomLoadCount;
-    if (activeRomLoads < SDC_MAX_ACTIVE_ROM_LOADS)
-    {
-        sActiveRomLoads[activeRomLoads] = romBlock;
-        sActiveRomLoadCount = activeRomLoads + 1;
-    }
+    // with it. The depth is restored on exit, so nesting is re-entrant and a
+    // nested HBlank/VBlank/Sound DMA restores the enclosing protection.
+    u32 pinDepth = sdc_pinRomBlock(romBlock);
 
     void* cacheBlock = loadRomBlock(romBlock, SDC_BLOCK_INVALID);
     // vm_disableNestedIrqs() can still dispatch a pending irq, so the block must
-    // stay protected until after it returns.
+    // stay pinned until after it returns.
     vm_disableNestedIrqs();
 
-    sActiveRomLoadCount = activeRomLoads;
+    sdc_unpinRomBlock(pinDepth);
     return cacheBlock;
 }
 
 void* sdc_loadRomBlockForPatching(u32 romAddress)
 {
     u32 romBlock = ((romAddress << 7) >> 7) / SDC_BLOCK_SIZE;
+    // The linearly mapped window is permanently resident in main memory and is
+    // never evicted, so never reserve an evictable sd cache slot for it.
+    if (romBlock < SDC_LINEAR_ROM_BLOCK_COUNT)
+    {
+        return (void*)(ROM_LINEAR_DS_ADDRESS + (romBlock << SDC_BLOCK_SHIFT) + (romAddress & SDC_BLOCK_MASK));
+    }
     void* data = sdc_romBlockToCacheBlock[romBlock];
     // if not loaded at all yet, or not permanent
     if (!data || (u32)data < (u32)&sdc_cache[sBlockCount][0])
@@ -476,6 +487,16 @@ void sdc_init(void)
     {
         sdc_romBlockToCacheBlock[i] = NULL;
     }
+    // Permanently map the linearly loaded first 2 MB of the rom (blocks
+    // 0 .. 511) directly to the linear window in main memory. These entries are
+    // never evicted and are never placed in sCacheBlockToRomBlock, so the
+    // eviction ring only ever manages sdc_cache blocks (which serve paged high
+    // rom >= 0x08200000). Every cpu read from < 0x08200000 becomes a single
+    // table hit with zero sd card reads and zero evictable cache slots.
+    for (u32 i = 0; i < SDC_LINEAR_ROM_BLOCK_COUNT; i++)
+    {
+        sdc_romBlockToCacheBlock[i] = (void*)(ROM_LINEAR_DS_ADDRESS + (i << SDC_BLOCK_SHIFT));
+    }
     for (u32 i = 0; i < SDC_BLOCK_COUNT; i++)
     {
         sCacheBlockToRomBlock[i] = SDC_ROM_BLOCK_INVALID;
@@ -484,7 +505,7 @@ void sdc_init(void)
     sCurrentFetch.cacheBlock = SDC_BLOCK_INVALID;
     sCurrentFetch.romBlock = SDC_ROM_BLOCK_INVALID;
     sRomPatchCount = 0;
-    sActiveRomLoadCount = 0;
+    sdc_activeRomLoadCount = 0;
     sTabuLevel = 0;
     sTabuBlocks[0] = SDC_BLOCK_INVALID;
     sTabuBlocks[1] = SDC_BLOCK_INVALID;

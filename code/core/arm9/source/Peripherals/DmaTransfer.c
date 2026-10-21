@@ -263,6 +263,13 @@ static inline void dma_immTransferRomSrc(u32 src, u32 dst, u32 byteCount, bool d
     // currently cached block into unrelated data.
     while (byteCount > 0)
     {
+        // Pin the active rom block across the whole copy. The copy can be
+        // interrupted by a nested HBlank/VBlank/Sound DMA IRQ, and without this
+        // pin that IRQ's SdCache miss could evict and overwrite the block while
+        // we are still reading from it. Pinning also covers the cache hit path,
+        // where sdc_loadRomBlockDirect() is not called at all.
+        u32 romBlock = (src & 0x01FFFFFF) >> SDC_BLOCK_SHIFT;
+        u32 pinDepth = sdc_pinRomBlock(romBlock);
         const void* cacheBlock = sdc_getRomBlock(src);
         u32 offset = src & SDC_BLOCK_MASK;
         u32 remainingInBlock = SDC_BLOCK_SIZE - offset;
@@ -272,6 +279,7 @@ static inline void dma_immTransferRomSrc(u32 src, u32 dst, u32 byteCount, bool d
             mem_copy32((const u8*)cacheBlock + offset, dstPtr, remainingInBlock);
         else
             mem_copy16((const u8*)cacheBlock + offset, dstPtr, remainingInBlock);
+        sdc_unpinRomBlock(pinDepth);
         src += remainingInBlock;
         dstPtr += remainingInBlock;
         byteCount -= remainingInBlock;
