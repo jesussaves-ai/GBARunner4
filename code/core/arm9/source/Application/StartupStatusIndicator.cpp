@@ -1,5 +1,6 @@
 #include "common.h"
 #include <string.h>
+#include <mini-printf.h>
 #include <libtwl/gfx/gfx.h>
 #include <libtwl/gfx/gfxBackground.h>
 #include <libtwl/gfx/gfxPalette.h>
@@ -34,8 +35,11 @@
 // priority 0, char base 5, screen base 16, 32x32, 4bpp
 #define STATUS_BG0CNT_VALUE     ((16 << 8) | (5 << 2) | 0)
 
-// Sub screen text row/colour.
-#define STATUS_ROW              20
+// Sub screen text rows for the two diagnostic lines. The interior of the
+// border spans rows 2..21, so the id/save line sits just above the bottom
+// border and the environment line two rows higher.
+#define STATUS_ROW_ENV          19
+#define STATUS_ROW_GAME         21
 #define STATUS_BACKDROP_COLOR   0x0000
 #define STATUS_TWL_COLOR        0x03E0          // green
 #define STATUS_NTR_COLOR        0x4210          // light gray
@@ -45,51 +49,77 @@
 
 namespace
 {
-/// @brief One 5x7 glyph inside an 8x8 cell. Bit 6..2 of each row byte map to
-///        the five glyph columns (bit 7 and bits 1..0 stay clear).
+/// @brief One 5x7 glyph inside an 8x8 cell. Bits 6..2 of each row byte map to
+///        the five glyph columns left-to-right (bit 7 and bits 1..0 stay clear).
 struct StatusGlyph
 {
     char c;
     u8 rows[8];
 };
 
-// Only the characters used by the status strings are stored, keeping the table
-// in .rodata and out of the precious ITCM.
+// A complete 5x7 ASCII font (space, A-Z, 0-9 and ':|-/?' plus a '?' fallback)
+// so any 4-character game code and any save-type description renders crisply.
+// Kept in .rodata and out of the precious ITCM.
 constexpr StatusGlyph sGlyphs[] =
 {
     { ' ', { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 } },
+    { '-', { 0x00, 0x00, 0x00, 0x7C, 0x00, 0x00, 0x00, 0x00 } },
+    { '/', { 0x04, 0x08, 0x08, 0x10, 0x20, 0x20, 0x40, 0x00 } },
     { ':', { 0x00, 0x10, 0x10, 0x00, 0x10, 0x10, 0x00, 0x00 } },
     { '|', { 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x00 } },
-    { '1', { 0x20, 0x60, 0x20, 0x20, 0x20, 0x20, 0x70, 0x00 } },
-    { '3', { 0x70, 0x44, 0x04, 0x30, 0x04, 0x44, 0x70, 0x00 } },
+    { '?', { 0x38, 0x44, 0x04, 0x08, 0x10, 0x00, 0x10, 0x00 } },
+    { '0', { 0x38, 0x44, 0x4C, 0x54, 0x64, 0x44, 0x38, 0x00 } },
+    { '1', { 0x10, 0x30, 0x10, 0x10, 0x10, 0x10, 0x38, 0x00 } },
+    { '2', { 0x38, 0x44, 0x04, 0x08, 0x10, 0x20, 0x7C, 0x00 } },
+    { '3', { 0x7C, 0x08, 0x10, 0x08, 0x04, 0x44, 0x38, 0x00 } },
     { '4', { 0x08, 0x18, 0x28, 0x48, 0x7C, 0x08, 0x08, 0x00 } },
-    { '6', { 0x70, 0x40, 0x40, 0x78, 0x44, 0x44, 0x70, 0x00 } },
-    { '7', { 0x7C, 0x08, 0x10, 0x10, 0x20, 0x20, 0x20, 0x00 } },
-    { '8', { 0x70, 0x44, 0x44, 0x70, 0x44, 0x44, 0x70, 0x00 } },
-    { 'A', { 0x70, 0x44, 0x44, 0x7C, 0x44, 0x44, 0x44, 0x00 } },
+    { '5', { 0x7C, 0x40, 0x78, 0x04, 0x04, 0x44, 0x38, 0x00 } },
+    { '6', { 0x18, 0x20, 0x40, 0x78, 0x44, 0x44, 0x38, 0x00 } },
+    { '7', { 0x7C, 0x04, 0x08, 0x10, 0x20, 0x20, 0x20, 0x00 } },
+    { '8', { 0x38, 0x44, 0x44, 0x38, 0x44, 0x44, 0x38, 0x00 } },
+    { '9', { 0x38, 0x44, 0x44, 0x3C, 0x04, 0x08, 0x30, 0x00 } },
+    { 'A', { 0x38, 0x44, 0x44, 0x7C, 0x44, 0x44, 0x44, 0x00 } },
     { 'B', { 0x78, 0x44, 0x44, 0x78, 0x44, 0x44, 0x78, 0x00 } },
-    { 'C', { 0x70, 0x44, 0x40, 0x40, 0x40, 0x44, 0x70, 0x00 } },
+    { 'C', { 0x38, 0x44, 0x40, 0x40, 0x40, 0x44, 0x38, 0x00 } },
     { 'D', { 0x78, 0x44, 0x44, 0x44, 0x44, 0x44, 0x78, 0x00 } },
     { 'E', { 0x7C, 0x40, 0x40, 0x78, 0x40, 0x40, 0x7C, 0x00 } },
+    { 'F', { 0x7C, 0x40, 0x40, 0x78, 0x40, 0x40, 0x40, 0x00 } },
+    { 'G', { 0x38, 0x44, 0x40, 0x5C, 0x44, 0x44, 0x3C, 0x00 } },
     { 'H', { 0x44, 0x44, 0x44, 0x7C, 0x44, 0x44, 0x44, 0x00 } },
+    { 'I', { 0x38, 0x10, 0x10, 0x10, 0x10, 0x10, 0x38, 0x00 } },
+    { 'J', { 0x1C, 0x08, 0x08, 0x08, 0x08, 0x48, 0x30, 0x00 } },
+    { 'K', { 0x44, 0x48, 0x50, 0x60, 0x50, 0x48, 0x44, 0x00 } },
     { 'L', { 0x40, 0x40, 0x40, 0x40, 0x40, 0x40, 0x7C, 0x00 } },
-    { 'M', { 0x44, 0x6C, 0x54, 0x44, 0x44, 0x44, 0x44, 0x00 } },
+    { 'M', { 0x44, 0x6C, 0x54, 0x54, 0x44, 0x44, 0x44, 0x00 } },
     { 'N', { 0x44, 0x64, 0x54, 0x4C, 0x44, 0x44, 0x44, 0x00 } },
-    { 'O', { 0x70, 0x44, 0x44, 0x44, 0x44, 0x44, 0x70, 0x00 } },
+    { 'O', { 0x38, 0x44, 0x44, 0x44, 0x44, 0x44, 0x38, 0x00 } },
+    { 'P', { 0x78, 0x44, 0x44, 0x78, 0x40, 0x40, 0x40, 0x00 } },
+    { 'Q', { 0x38, 0x44, 0x44, 0x44, 0x54, 0x48, 0x34, 0x00 } },
     { 'R', { 0x78, 0x44, 0x44, 0x78, 0x50, 0x48, 0x44, 0x00 } },
+    { 'S', { 0x3C, 0x40, 0x40, 0x38, 0x04, 0x04, 0x78, 0x00 } },
     { 'T', { 0x7C, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x00 } },
+    { 'U', { 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x38, 0x00 } },
+    { 'V', { 0x44, 0x44, 0x44, 0x44, 0x44, 0x28, 0x10, 0x00 } },
     { 'W', { 0x44, 0x44, 0x44, 0x54, 0x54, 0x6C, 0x44, 0x00 } },
-    { 'z', { 0x00, 0x00, 0x78, 0x08, 0x10, 0x20, 0x78, 0x00 } },
+    { 'X', { 0x44, 0x44, 0x28, 0x10, 0x28, 0x44, 0x44, 0x00 } },
+    { 'Y', { 0x44, 0x44, 0x28, 0x10, 0x10, 0x10, 0x10, 0x00 } },
+    { 'Z', { 0x7C, 0x04, 0x08, 0x10, 0x20, 0x40, 0x7C, 0x00 } },
 };
 
-const u8* findGlyph(char c)
+constexpr u32 sGlyphCount = sizeof(sGlyphs) / sizeof(sGlyphs[0]);
+
+/// @brief Finds the table index of a glyph, or -1 when the character has none.
+int findGlyphIndex(char c)
 {
-    for (const auto& glyph : sGlyphs)
+    if (c >= 'a' && c <= 'z')
+        c -= 32; // fold lowercase onto the uppercase glyphs
+
+    for (u32 i = 0; i < sGlyphCount; i++)
     {
-        if (glyph.c == c)
-            return glyph.rows;
+        if (sGlyphs[i].c == c)
+            return (int)i;
     }
-    return nullptr;
+    return -1;
 }
 
 /// @brief Expands an 8x8 1bpp glyph (or a blank tile when glyph is nullptr) into
@@ -114,9 +144,7 @@ void writeGlyphTile(vu16* tileDest, const u8* glyph)
                 // 4bpp hardware nibble order (GBATEK): the even pixel (X=col)
                 // is the LOW nibble and the odd pixel (X=col+1) is the HIGH
                 // nibble of each byte. The glyph table is authored MSB-left
-                // (bit 7 = X=0), so p0/p1 must be packed low/high respectively;
-                // the previous (p0 << 4) | p1 swapped every horizontal pixel
-                // pair (0<->1, 2<->3, ...) and garbled the whole font.
+                // (bit 7 = X=0), so p0/p1 must be packed low/high respectively.
                 u8 p0 = (bits >> (7 - col)) & 1;
                 u8 p1 = (bits >> (6 - col)) & 1;
                 tile[row * 4 + col / 2] = p0 | (p1 << 4);
@@ -126,6 +154,34 @@ void writeGlyphTile(vu16* tileDest, const u8* glyph)
 
     for (u32 i = 0; i < STATUS_TILE_HALFWORDS; i++)
         tileDest[i] = (u16)(tile[i * 2] | (tile[i * 2 + 1] << 8));
+}
+
+/// @brief Tile index to use for a character (0 = blank cell/glyph).
+u16 glyphTileIndex(char c)
+{
+    if (c == ' ')
+        return 0;
+    int index = findGlyphIndex(c);
+    if (index < 0)
+        return 0;
+    return (u16)(STATUS_GLYPH_TILE_BASE + index);
+}
+
+vu16* statusTilemap()
+{
+    return (vu16*)(STATUS_SUB_BG_BASE + STATUS_TILEMAP_OFFSET);
+}
+
+/// @brief Writes a centered string into one tilemap row.
+void renderRow(u32 row, const char* text)
+{
+    u32 length = (u32)strlen(text);
+    if (length > 32)
+        length = 32;
+    u32 startCol = (32 - length) / 2;
+    vu16* tilemap = statusTilemap();
+    for (u32 i = 0; i < length; i++)
+        tilemap[row * 32 + startCol + i] = glyphTileIndex(text[i]);
 }
 }
 
@@ -145,34 +201,27 @@ void StartupStatusIndicator::Show()
     if (!twlMode)
         text = "NTR MODE";
     else if (cache8MB)
-        text = clock134MHz ? "TWL: 134MHz | 8MB CACHE" : "TWL: 67MHz | 8MB CACHE";
+        text = clock134MHz ? "TWL: 134MHZ | 8MB CACHE" : "TWL: 67MHZ | 8MB CACHE";
     else
-        text = clock134MHz ? "TWL: 134MHz | 1MB CACHE" : "TWL: 67MHz | 1MB CACHE";
+        text = clock134MHz ? "TWL: 134MHZ | 1MB CACHE" : "TWL: 67MHZ | 1MB CACHE";
 
-    const u32 length = (u32)strlen(text);
-
-    // Build one 4bpp tile per character (16-bit VRAM stores only). Tile 0 is
-    // left blank because it is the tile every cleared map cell references, so
-    // the glyphs live at 1..length and the status row points at i + base.
+    // Build the whole font once (16-bit VRAM stores only). Tile 0 is left blank
+    // because it is the tile every cleared map cell references, so the glyphs
+    // live at 1..count and the map entries point at 1 + glyphIndex.
     vu16* tiles = (vu16*)(STATUS_SUB_BG_BASE + STATUS_TILES_OFFSET);
     writeGlyphTile(tiles, nullptr); // tile 0 = blank background tile
-    for (u32 i = 0; i < length; i++)
-        writeGlyphTile(tiles + (i + STATUS_GLYPH_TILE_BASE) * STATUS_TILE_HALFWORDS,
-            findGlyph(text[i]));
+    for (u32 i = 0; i < sGlyphCount; i++)
+        writeGlyphTile(tiles + (STATUS_GLYPH_TILE_BASE + i) * STATUS_TILE_HALFWORDS, sGlyphs[i].rows);
 
-    // Wipe the whole 32x32 tilemap before writing the status row. Bank C can
+    // Wipe the whole 32x32 tilemap before writing the status rows. Bank C can
     // still hold leftovers from the border/splash/previous run and any stale
     // entry would be drawn as a grid of garbage tiles behind and around the
     // badge. Every wiped cell now resolves to the blank tile 0.
-    vu16* tilemap = (vu16*)(STATUS_SUB_BG_BASE + STATUS_TILEMAP_OFFSET);
+    vu16* tilemap = statusTilemap();
     for (u32 i = 0; i < STATUS_TILEMAP_ENTRIES; i++)
         tilemap[i] = 0;
 
-    // Centre the badge horizontally and place it just above where the bottom
-    // border would be.
-    const u32 startCol = (length < 32) ? (32 - length) / 2 : 0;
-    for (u32 i = 0; i < length; i++)
-        tilemap[STATUS_ROW * 32 + startCol + i] = (u16)(i + STATUS_GLYPH_TILE_BASE);
+    renderRow(STATUS_ROW_ENV, text);
 
     GFX_PLTT_BG_SUB[0] = STATUS_BACKDROP_COLOR;
     GFX_PLTT_BG_SUB[1] = twlMode ? STATUS_TWL_COLOR : STATUS_NTR_COLOR;
@@ -185,6 +234,31 @@ void StartupStatusIndicator::Show()
     REG_DISPCNT_SUB = (REG_DISPCNT_SUB & ~0xFF00u) | (1 << 8); // MODE_0_2D | DISPLAY_BG0_ACTIVE
 }
 
+void StartupStatusIndicator::ShowGameInfo(u32 gameCode, const char* saveTypeDescription)
+{
+    // The four character game code is stored little endian at 0xAC. Fall back
+    // to "HOME" when it is not a clean printable code (stripped/homebrew roms).
+    char id[5];
+    bool valid = true;
+    for (u32 i = 0; i < 4; i++)
+    {
+        char c = (char)((gameCode >> (i * 8)) & 0xFF);
+        if (c < ' ' || c > '~' || findGlyphIndex(c) < 0)
+            valid = false;
+        id[i] = c;
+    }
+    id[4] = '\0';
+    if (!valid)
+    {
+        id[0] = 'H'; id[1] = 'O'; id[2] = 'M'; id[3] = 'E'; id[4] = '\0';
+    }
+
+    char text[40];
+    mini_snprintf(text, sizeof(text), "ID: %s | SAVE: %s", id, saveTypeDescription);
+
+    renderRow(STATUS_ROW_GAME, text);
+}
+
 void StartupStatusIndicator::Clear()
 {
     // Disable the layer first, then wipe the tilemap so a later BG3 setup can
@@ -193,7 +267,7 @@ void StartupStatusIndicator::Clear()
     REG_DISPCNT_SUB &= ~(1 << 8);
     REG_BG0CNT_SUB = 0;
 
-    vu16* tilemap = (vu16*)(STATUS_SUB_BG_BASE + STATUS_TILEMAP_OFFSET);
+    vu16* tilemap = statusTilemap();
     for (u32 i = 0; i < STATUS_TILEMAP_ENTRIES; i++)
         tilemap[i] = 0;
 
