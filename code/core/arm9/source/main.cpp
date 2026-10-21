@@ -40,6 +40,7 @@
 #include "Application/GbaDisplayConfigurationService.h"
 #include "Application/GbaBorderService.h"
 #include "Application/SplashScreen.h"
+#include "Application/StartupStatusIndicator.h"
 #include "Patches/PatchSwi.h"
 #include "Patches/SelfModifyingPatches.h"
 #include "Emulator/BootAnimationSkip.h"
@@ -486,6 +487,11 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
 
     mem_setMainMemoryPriority(EXMEMCNT_MAIN_MEM_PRIO_ARM7);
 
+    // Confirm the active boot configuration (TWL mode / 134 MHz / 8 MB cache)
+    // on the sub screen while the ROM is loaded. Cleared again below, before
+    // the GBA display and border are configured.
+    StartupStatusIndicator::Show();
+
     startSplashScreenAnimation();
 
     bool mountResult;
@@ -531,6 +537,10 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     stopSplashScreenAnimation();
     delete sSplashScreen;
     sSplashScreen = nullptr;
+
+    // The boot status badge has served its purpose; remove it before the GBA
+    // display and border take over the sub screen.
+    StartupStatusIndicator::Clear();
 
     const auto& displaySettings = gAppSettingsService.GetAppSettings().displaySettings;
     gGbaDisplayConfigurationService.ApplyDisplaySettings(displaySettings);

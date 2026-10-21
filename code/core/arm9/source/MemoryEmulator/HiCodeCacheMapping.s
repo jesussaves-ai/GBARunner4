@@ -51,11 +51,9 @@ notHicodeMiss:
     ldr r11, [r8]
     b vm_undefinedArmInstructionInLR
 
-.bss
-
-// will be filled with HICODE_UNDEFINED_INSTRUCTION for fast prefetching
-.global gHicodeUndefinedData
-gHicodeUndefinedData:
-.space 2048
+// gHicodeUndefinedData is now defined in HiCodeCacheMappingC.c and placed in
+// .ewram.bss (main RAM) so the scarce 128 KB vrama region keeps headroom. It
+// must stay 2048-byte aligned so the instruction-cache index derived from its
+// address matches cache_setIndex() during the locked-cache setup.
 
 #endif

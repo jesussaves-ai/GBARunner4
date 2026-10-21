@@ -12,6 +12,15 @@ struct
     u32 lastHicodeBlock;
 } gHicodeState;
 
+/// @brief Scratch pattern (HICODE_UNDEFINED_INSTRUCTION) prefetched into the
+///        locked instruction cache. It lives in main RAM (.ewram.bss) rather
+///        than the scarce 128 KB vrama region. The 2048-byte alignment is
+///        required: initializeItcm() derives the cache index from the address
+///        of each prefetched line, so the buffer's low 11 bits must match the
+///        explicit cache_setIndex() calls.
+[[gnu::section(".ewram.bss"), gnu::aligned(2048)]]
+u32 gHicodeUndefinedData[2048 / 4];
+
 static inline u32 mpu_getRegion4(void)
 {
     u32 config;
