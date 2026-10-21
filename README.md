@@ -1,13 +1,13 @@
 # GBARunner4
 
-**A high-performance Game Boy Advance hypervisor for Nintendo DS, DSi, and modern dual-screen flashcarts.**
+**A native ARM9/ARM7 Game Boy Advance hypervisor and emulation core for stock Nintendo DS, DSi, and 3DS hardware.**
 
 [![Nightly Build](https://github.com/jesussaves-ai/GBARunner4/actions/workflows/nightly.yml/badge.svg)](https://github.com/jesussaves-ai/GBARunner4/actions/workflows/nightly.yml)
 [![Platform](https://img.shields.io/badge/platform-Nintendo%20DS%20%7C%20DSi%20%7C%203DS-9cf)](#overview)
 [![Target](https://img.shields.io/badge/CPU-ARM9%20ARM946E--S%20%40%2067%2F133%20MHz-blue)](#architecture--memory-budgets)
 [![License](https://img.shields.io/badge/license-MPL--2.0-informational)](#credits--license)
 
-> **GBARunner4** is a fork of [Gericom's GBARunner3](https://github.com/Gericom/GBARunner3) focused on **high-ROM compatibility, save robustness, and hardware-accurate peripheral emulation**. It targets stock Nintendo DS/DSi/3DS hardware as well as modern dual-screen flashcart handhelds such as the **Anbernic RG DS Plus**.
+> **GBARunner4** is a fork of [Gericom's GBARunner3](https://github.com/Gericom/GBARunner3) focused on **high-ROM compatibility, save robustness, and hardware-accurate peripheral emulation**. It is a **hardware-assisted DS homebrew solution** built for stock Nintendo DS, DSi, and 3DS hardware, launched from a **slot-1 flashcart** or a **DS-mode hardware bridge** such as the **DSpico (RP2040)**. Unlike standalone software emulators on other handhelds, it does not emulate the DS itself — it runs the original GBA code natively on the console's real ARM9/ARM7 processors.
 
 ---
 
@@ -25,7 +25,7 @@
 
 ## Overview
 
-GBARunner4 is not a traditional software emulator. It is a **hypervisor**: instead of interpreting every GBA instruction in software, it runs the original cartridge code **natively** on the Nintendo DS's ARM9 (ARM946E-S) and ARM7 (ARM7TDMI) processors, and only intercepts the instructions and memory accesses that the DS cannot execute directly.
+GBARunner4 is not a traditional software emulator, and it is not a standalone emulator for other handhelds. It is a **hardware-assisted DS homebrew hypervisor**: rather than emulating the DS, it runs the original cartridge code **natively** on the console's own ARM9 (ARM946E-S) and ARM7 (ARM7TDMI) processors, and only intercepts the instructions and memory accesses that the DS cannot execute directly. It is designed for stock Nintendo DS, DSi, and 3DS hardware, loaded through a slot-1 flashcart or a DS-mode hardware bridge such as the DSpico (RP2040).
 
 This approach delivers near-native performance, but it requires an enormous amount of care around the hardest parts of the GBA platform:
 
@@ -50,8 +50,10 @@ This approach delivers near-native performance, but it requires an enormous amou
 | Nintendo DS / DS Lite | DS mode, ARM9 @ 67 MHz, ARM7 @ 33 MHz |
 | Nintendo DSi / DSi XL | DSi mode, ARM9 @ 133 MHz, expanded RAM |
 | Nintendo 3DS / 2DS | Backwards-compatible DS/DSi mode |
-| Anbernic RG DS Plus & similar | Modern dual-screen flashcart handhelds |
-| Flashcarts (R4, Acekard, DSTT, etc.) | FatFS-backed SD access |
+| Slot-1 flashcarts (R4, Acekard, DSTT, etc.) | FatFS-backed SD access; standard launch method |
+| DSpico (RP2040) & DS-mode hardware bridges | Open-source slot-1 replacement / bridge hardware |
+
+GBARunner4 is a **hardware-assisted DS homebrew solution**: it requires real DS-family hardware (or a DS-mode bridge) to run. It is distinct from standalone software emulators that emulate the DS in software on unrelated handhelds.
 
 ---
 
@@ -315,4 +317,4 @@ Key folders are governed by [`AGENTS.md`](AGENTS.md).
 - **Save override data:** derived from the [mGBA](https://github.com/mgba-emu/mgba) cartridge override tables (community save-type reference).
 - **toolchain:** [devkitPro](https://devkitpro.org/) (`devkitARM` / `libnds`).
 
-Source files and linker scripts carry **Mozilla Public License 2.0** headers; see those headers for the exact terms. This project is a community fork and is not affiliated with Nintendo, Gericom, or Anbernic.
+Source files and linker scripts carry **Mozilla Public License 2.0** headers; see those headers for the exact terms. This project is a community fork and is not affiliated with Nintendo or Gericom.
