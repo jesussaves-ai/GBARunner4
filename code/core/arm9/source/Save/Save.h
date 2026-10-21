@@ -39,6 +39,13 @@ void sav_patchRomFunction(u32 gbaAddress, u32 swiNumber);
 const SaveTypeInfo* sav_resolveGameIdSaveTypeInfo(
     u32 gameCode, const SaveTypeInfo* detected, SaveTypeInfo& storage);
 
+/// @brief Writes a short, uppercase description of a resolved save type for the
+///        boot diagnostics badge (e.g. "FLASH 128K", "EEPROM 512B", "NONE").
+/// @param saveTypeInfo The resolved save type info, or nullptr for the default
+///        32 KB SRAM fallback used for untagged roms.
+/// @param out Destination buffer of at least 16 bytes.
+void sav_getSaveTypeDescription(const SaveTypeInfo* saveTypeInfo, char* out);
+
 void sav_initializeSave(const SaveTypeInfo* saveTypeInfo, const char* savePath);
 
 #ifdef __cplusplus

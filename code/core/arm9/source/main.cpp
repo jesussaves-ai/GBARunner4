@@ -237,12 +237,15 @@ static void disableSramWrites(void)
     memu_setStore32Handler(0xF, memu_store32Undefined);
 }
 
+static char sSaveTypeText[16] = "NONE";
+
 static void handleSave(const char* savePath)
 {
     const auto& gameSettings = gAppSettingsService.GetAppSettings().gameSettings;
     if (gameSettings.saveType == GbaSaveType::None)
     {
         gLogger->Log(LogLevel::Debug, "Save Type: None\n");
+        strcpy(sSaveTypeText, "NONE");
         disableSramReads();
         disableSramWrites();
         return;
@@ -255,6 +258,9 @@ static void handleSave(const char* savePath)
     // or ambiguous. It may correct the save type/size or force no save chip.
     SaveTypeInfo gameIdSaveTypeInfo;
     saveTypeInfo = sav_resolveGameIdSaveTypeInfo(gRomHeader.gameCode, saveTypeInfo, gameIdSaveTypeInfo);
+    // Record a short description for the boot diagnostics badge before the
+    // possible early return.
+    sav_getSaveTypeDescription(saveTypeInfo, sSaveTypeText);
     if (saveTypeInfo && saveTypeInfo->type == SAVE_TYPE_NONE)
     {
         gLogger->Log(LogLevel::Debug, "Save Type: None (game id override)\n");
@@ -527,6 +533,9 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     }
     loadGameSpecificSettings();
     handleSave(romPath);
+    // The rom header and the resolved save type are now known; render the second
+    // diagnostic line on the boot badge (the first line was drawn by Show()).
+    StartupStatusIndicator::ShowGameInfo(gRomHeader.gameCode, sSaveTypeText);
     // The save tag scanner uses sdc_cache directly as a scratch buffer, which
     // overwrites the first blocks without updating the rom block mapping. Drop
     // those stale mappings so the guest reloads (and re-patches) them on demand.

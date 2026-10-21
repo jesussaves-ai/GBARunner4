@@ -372,3 +372,30 @@ const SaveTypeInfo* sav_resolveGameIdSaveTypeInfo(
     };
     return &storage;
 }
+
+void sav_getSaveTypeDescription(const SaveTypeInfo* saveTypeInfo, char* out)
+{
+    if (!saveTypeInfo)
+    {
+        // Untagged roms fall back to the 32 KB SRAM cache.
+        strcpy(out, "SRAM 32K");
+        return;
+    }
+
+    switch (saveTypeInfo->type & SAVE_TYPE_MASK)
+    {
+        case SAVE_TYPE_EEPROM:
+            strcpy(out, saveTypeInfo->size <= 512 ? "EEPROM 512B" : "EEPROM 8K");
+            break;
+        case SAVE_TYPE_FLASH:
+            // SAVE_TYPE_FLASH1M sets bit 13 over SAVE_TYPE_FLASH.
+            strcpy(out, (saveTypeInfo->type & (1u << 13)) ? "FLASH 128K" : "FLASH 64K");
+            break;
+        case SAVE_TYPE_SRAM:
+            strcpy(out, "SRAM 32K");
+            break;
+        default:
+            strcpy(out, "NONE");
+            break;
+    }
+}
