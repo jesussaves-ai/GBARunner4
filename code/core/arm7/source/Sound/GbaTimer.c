@@ -21,7 +21,7 @@ void gbat_initTimer(gbat_t* timer)
     timer->counter = 0;
 }
 
-u32 gbat_updateTimer(gbat_t* timer)
+u32 gbat_updateTimer(gbat_t* timer, u32 cascadeOverflows)
 {
     u32 control = timer->control;
     if (!(control & GBAT_CONTROL_ENABLED))
@@ -38,12 +38,21 @@ u32 gbat_updateTimer(gbat_t* timer)
     }
     else
     {
+        u32 ticks;
         if (control & GBAT_CONTROL_SLAVE)
         {
-            return 0; // todo: implement chaining
+            // Cascade mode: increment once per Timer 0 overflow. The prescaler is
+            // ignored by hardware, so feed the previous timer's overflow count
+            // (already scaled into this counter's *2 domain) instead of cycle
+            // ticks. Without this a Direct Sound channel assigned to a cascaded
+            // Timer 1 consumed no FIFO words (silence).
+            ticks = cascadeOverflows << TICK_SHIFT;
+        }
+        else
+        {
+            ticks = sPrescaleShiftedTicksPerUpdate[control & GBAT_CONTROL_PRESCALE_MASK];
         }
 
-        u32 ticks = sPrescaleShiftedTicksPerUpdate[control & GBAT_CONTROL_PRESCALE_MASK];
         u32 counter = timer->counter + ticks;
         u32 reload = (timer->reload - 0x10000) << TICK_SHIFT;
         u32 overflows = 0;

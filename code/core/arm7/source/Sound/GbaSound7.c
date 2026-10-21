@@ -132,8 +132,8 @@ void gbas_updateMixer(s16* outLeft, s16* outRight)
 
     if (!sPaused)
     {
-        u32 timer0Overflows = gbat_updateTimer(&sTimers[0]);
-        u32 timer1Overflows = gbat_updateTimer(&sTimers[1]);
+        u32 timer0Overflows = gbat_updateTimer(&sTimers[0], 0);
+        u32 timer1Overflows = gbat_updateTimer(&sTimers[1], timer0Overflows);
         
         //master enable
         if (gSoundSharedData->masterEnable)

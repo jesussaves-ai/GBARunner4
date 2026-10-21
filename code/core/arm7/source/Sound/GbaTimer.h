@@ -28,7 +28,10 @@ extern "C" {
 #endif
 
 void gbat_initTimer(gbat_t* timer);
-u32 gbat_updateTimer(gbat_t* timer);
+/// @param timer The timer to advance.
+/// @param cascadeOverflows Number of overflows of the (chained) previous timer
+///        during this step. Only used when the timer is in cascade mode.
+u32 gbat_updateTimer(gbat_t* timer, u32 cascadeOverflows);
 
 #ifdef __cplusplus
 }
