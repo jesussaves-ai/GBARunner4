@@ -29,4 +29,9 @@ public:
     static inline bool SupportsDldi() { return _flags & ENVIRONMENT_FLAGS_DLDI; }
     static inline bool SupportsArgv() { return _flags & ENVIRONMENT_FLAGS_ARGV; }
     static inline bool HasPicoAgbAdapter() { return _flags & ENVIRONMENT_FLAGS_PICO_AGB_ADAPTER; }
+
+    /// @brief Returns true when the console exposes the full DSi/TWL 16 MB main
+    ///        RAM (SCFG_EXT main RAM limit >= 16 MB). Only then is it safe to
+    ///        place large pools above the 4 MB NTR window.
+    static bool HasExtendedMainMemory();
 };

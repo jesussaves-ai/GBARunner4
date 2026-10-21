@@ -24,10 +24,23 @@ void* sdc_romBlockToCacheBlock[SDC_ROM_BLOCK_COUNT];
 /// @brief Random generator state for random cache replacement.
 static u32 sRandomState;
 
+/// @brief The active sd cache pool. Points at sdc_cacheNtr on DS/DS Lite and at
+///        the DSi extended-memory pool on TWL hardware.
+u8 (*sdc_cache)[SDC_BLOCK_SIZE];
+
+/// @brief Number of usable 4 KB blocks in the active pool.
+u32 sdc_blockCount;
+
+/// @brief DSi/TWL cache pool, living in the 16 MB main RAM beyond the 4 MB NTR
+///        window. Statically pre-allocated in .dsiram.bss (never dynamically
+///        allocated) and only referenced when the hardware exposes 16 MB.
+[[gnu::section(".dsiram.bss")]]
+static u8 sdc_cacheTwl[SDC_TWL_BLOCK_COUNT][SDC_BLOCK_SIZE] __attribute__((aligned(SDC_BLOCK_SIZE)));
+
 /// @brief Maps sd cache blocks to rom blocks. Placed in .ewram.bss because the
 ///        128 KB vrama runtime region that holds the default .bss is very tight.
 [[gnu::section(".ewram.bss")]]
-static u16 sCacheBlockToRomBlock[SDC_BLOCK_COUNT];
+static u16 sCacheBlockToRomBlock[SDC_MAX_BLOCK_COUNT];
 
 /// @brief The number of usable blocks in the cache. This can be less than the
 ///        total number of cache blocks when some blocks are permanently loaded.
@@ -205,9 +218,9 @@ u32 sdc_searchRomSignature(const u32* signature)
 void sdc_invalidateCacheBlockRange(u32 firstBlock, u32 blockCount)
 {
     u32 end = firstBlock + blockCount;
-    if (end > SDC_BLOCK_COUNT)
+    if (end > sdc_blockCount)
     {
-        end = SDC_BLOCK_COUNT;
+        end = sdc_blockCount;
     }
     for (u32 i = firstBlock; i < end; i++)
     {
@@ -481,8 +494,23 @@ void* sdc_loadRomBlockForPatching(u32 romAddress)
 
 void sdc_init(void)
 {
+    // Scale the cache pool to the hardware: the tight 1 MB NTR ring on DS/DS
+    // Lite, or the 8 MB DSi extended-memory pool when the full 16 MB main RAM
+    // is available. Both pools are statically pre-allocated; nothing is
+    // allocated at runtime.
+    if (env_hasExtendedMainMemory())
+    {
+        sdc_cache = sdc_cacheTwl;
+        sdc_blockCount = SDC_TWL_BLOCK_COUNT;
+    }
+    else
+    {
+        sdc_cache = (u8 (*)[SDC_BLOCK_SIZE])sdc_cacheNtr;
+        sdc_blockCount = SDC_NTR_BLOCK_COUNT;
+    }
+
     sRandomState = 0xA512ED48; // initial random seed
-    sBlockCount = SDC_BLOCK_COUNT;
+    sBlockCount = sdc_blockCount;
     for (u32 i = 0; i < SDC_ROM_BLOCK_COUNT; i++)
     {
         sdc_romBlockToCacheBlock[i] = NULL;
@@ -497,7 +525,7 @@ void sdc_init(void)
     {
         sdc_romBlockToCacheBlock[i] = (void*)(ROM_LINEAR_DS_ADDRESS + (i << SDC_BLOCK_SHIFT));
     }
-    for (u32 i = 0; i < SDC_BLOCK_COUNT; i++)
+    for (u32 i = 0; i < sdc_blockCount; i++)
     {
         sCacheBlockToRomBlock[i] = SDC_ROM_BLOCK_INVALID;
     }
