@@ -126,6 +126,8 @@ The real GBA Direct Sound FIFO is **8 words (32 bytes) deep**, and the sound DMA
 
 - `GBAS_DIRECT_FIFO_SIZE` is now **8 words**, and all offset math uses `GBAS_DIRECT_FIFO_MASK`.
 - DMA is requested **exactly like the hardware half-empty point** (`!(fifoCount & 4)`), which also re-arms a refill after an underrun.
+- The refill request is **level-triggered every DS output sample**, including the zero-overflow path (a low-rate Direct-Sound timer or a tempo/timer reprogram during a map transition consumes no FIFO word for a sample but must still re-arm the guest's sound DMA). Previously the request was only armed on a timer overflow, so the shallow 8-word FIFO could drain before the refill was requested.
+- The DAC output is **de-clicked across underruns and resets**: a momentary empty FIFO holds the last sample exactly like the real DAC, a genuinely stopped stream releases its stuck DC level, and a reset/recovery is crossfaded (slew-limited) instead of stepped, so a map-transition reload cannot emit a square-wave click.
 - A `SOUNDCNT_H` reset strobe sets `fifoReset`, so the ARM7 drops its cached playback word and the new stream starts on its own first sample instead of the previous stream's tail.
 - A catch-up clamp (`GBAS_MAX_OVERFLOWS_PER_SAMPLE = 4`) prevents a timer reload with 10+ overflows from dumping a whole buffer in one step or holding a stale sample.
 
