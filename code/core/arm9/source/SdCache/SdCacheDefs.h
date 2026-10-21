@@ -6,8 +6,12 @@
 #define SDC_BLOCK_INVALID       0xFFFF
 #define SDC_ROM_BLOCK_INVALID   0xFFFF
 
-// NTR (DS/DS Lite): a 1 MB ring that fits the tight 4 MB main RAM budget.
-#define SDC_NTR_SIZE            (1 * 1024 * 1024)
+// NTR (DS/DS Lite): a ring that fits the tight 4 MB main RAM budget. It starts
+// at 960 KB rather than 1 MB: the 64 KB difference lets the 64 KB gColorLut
+// live in .ewram.bss (reclaiming half of the tight 128 KB vrama region) without
+// shrinking the heap, while keeping 240 evictable 4 KB blocks for high-ROM
+// streaming. TWL hardware still uses the full 8 MB DSi pool below.
+#define SDC_NTR_SIZE            (960 * 1024)
 #define SDC_NTR_BLOCK_COUNT     (SDC_NTR_SIZE / SDC_BLOCK_SIZE)
 
 // TWL (DSi/3DS/DSpico in TWL mode): the 16 MB main RAM pool lets the same

@@ -5,6 +5,12 @@
 
 // Based on https://gist.github.com/profi200/bfa7be60b3eecb8c43f59000f626c743
 
+// The 64 KB color-correction LUT is placed in .ewram.bss (DS main RAM) rather
+// than .bss: the 128 KB vrama region holding .text/.rodata/.bss is very tight,
+// and this table alone would otherwise consume half of it. It is read-only
+// indexed access from the (cold/warm, not hot-loop) palette path and is cached
+// by the ARM9 data cache exactly as it was in vrama, so there is no cost.
+[[gnu::section(".ewram.bss")]]
 u16 gColorLut[COLOR_LUT_SIZE];
 
 // When the 2d engine converts from 5 to 6 bit, the lsb bit will always be zero (i.e. 31 -> 62)
