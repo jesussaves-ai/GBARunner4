@@ -299,7 +299,7 @@ __attribute__((optimize("Os"))) u32* jit_handleArmUndefined(u32 instruction, u32
         jit_ensureBlockJitted((void*)branchTarget);
         return (u32*)branchTarget;
     }
-    else if ((instruction & 0x0FF00010) == 0x07E00010)
+    else if ((instruction & 0x0FF00010) == 0x06E00010)
     {
         // LDMIA Rn!, {...,pc}
         u32 rn = instruction & 0xF;

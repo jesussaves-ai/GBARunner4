@@ -9,7 +9,12 @@ arm_func jit_thumbEnsureJittedHiReg
     ldr r8, [sp, #-4]
 
 arm_func jit_thumbEnsureJitted
+    // Normalize GBA rom mirrors (0x0A/0x0C) to the base 0x08 range before
+    // translating to the DS address space, exactly like the ARM BX path. A
+    // Thumb branch into a rom mirror would otherwise resolve to an unmapped
+    // address and prefetch-abort forever. No-op for the direct 0x08/0x09 range.
     cmp r8, #ROM_LINEAR_GBA_ADDRESS
+        biccs r8, r8, #0x06000000
         addhs r8, r8, #(ROM_LINEAR_DS_ADDRESS - ROM_LINEAR_GBA_ADDRESS)
     sub lr, r8, #ROM_LINEAR_DS_ADDRESS
     cmp lr, #ROM_LINEAR_SIZE
