@@ -41,6 +41,10 @@ typedef struct
 
 extern jit_state_t gJitState;
 
+/// @brief True while the JIT patcher is processing blocks (false after
+///        jit_disable(), which marks every block as already processed).
+extern bool gJitPatcherActive;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -78,6 +82,17 @@ void* jit_findBlockEnd(const void* ptr);
 
 bool jit_isBlockJitted(void* ptr);
 void jit_ensureBlockJitted(void* ptr);
+
+/// @brief Synchronizes JIT/cache state after a DMA has overwritten a range in
+///        IWRAM or EWRAM. If the destination range was previously JIT-processed
+///        (i.e. it held executing code), its processed and aux bits are cleared
+///        so the new bytes are re-jitted, and the freshly written data is cleaned
+///        to memory before the instruction cache is invalidated. For a range that
+///        was never jitted (the common data-DMA case) this only scans the bit
+///        table and does nothing else.
+/// @param gbaAddress The destination GBA address (IWRAM 0x03.., EWRAM 0x02..).
+/// @param byteCount The number of bytes written.
+void jit_invalidateCodeRange(u32 gbaAddress, u32 byteCount);
 
 /// @brief Initializes the JIT patcher.
 void jit_init(void);
