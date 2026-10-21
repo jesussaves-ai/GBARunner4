@@ -80,6 +80,15 @@ arm_func emu_timerCntLStore16
     mov r10, #0x30
     orr r10, r10, r9, lsl #9
     orrne r10, r10, #(1 << 8) // timer 1
+    // Wait for room in the arm9->arm7 send fifo before posting. A raw store to
+    // REG_IPCFIFOSEND while it is full is silently dropped (and raises the fifo
+    // error flag), which would desync the arm7 direct-sound timer reload and
+    // cause pitch drift/crackle. The arm7 drains the fifo from its recv irq, so
+    // this spin is bounded.
+    ldr r12, [r11, #0x184] // REG_IPCFIFOCNT
+1:  tst r12, #2 // send fifo full?
+        ldrne r12, [r11, #0x184]
+        bne 1b
     str r10, [r11, #0x188]
     bx lr
 
@@ -124,6 +133,10 @@ arm_func emu_timerCntHStore16
     mov r10, #0x50
     orr r10, r10, r9, lsl #9
     orrne r10, r10, #(1 << 8) // timer 1
+    ldr r12, [r11, #0x184] // REG_IPCFIFOCNT
+1:  tst r12, #2 // send fifo full?
+        ldrne r12, [r11, #0x184]
+        bne 1b
     str r10, [r11, #0x188]
     bx lr
 
@@ -165,16 +178,31 @@ arm_func emu_timerCntStore32
     tst r10, #0x18 // timer 0 and 1 mask
         bxeq lr // return when timer 2 or 3
 
-    tst r10, #0x10 // check if timer 1
+    // Deliver the reload and the control as two separate messages. The timer1
+    // flag is recomputed per message because the send-fifo wait below clobbers
+    // the condition flags, and every raw store to REG_IPCFIFOSEND is guarded
+    // against a full send fifo (a dropped word desyncs the arm7 direct-sound
+    // timer reload/control and causes pitch drift/crackle).
+    tst r8, #4 // check if timer 1
     mov r12, r9, lsl #16
     mov r11, #0x04000000
     mov r10, #0x30
     orr r10, r10, r12, lsr #7
     orrne r10, r10, #(1 << 8) // timer 1
+    ldr r12, [r11, #0x184] // REG_IPCFIFOCNT
+1:  tst r12, #2 // send fifo full?
+        ldrne r12, [r11, #0x184]
+        bne 1b
     str r10, [r11, #0x188]
+
+    tst r8, #4 // check if timer 1
     mov r12, r9, lsr #16
     mov r10, #0x50
     orr r10, r10, r12, lsl #9
     orrne r10, r10, #(1 << 8) // timer 1
+    ldr r12, [r11, #0x184] // REG_IPCFIFOCNT
+1:  tst r12, #2 // send fifo full?
+        ldrne r12, [r11, #0x184]
+        bne 1b
     str r10, [r11, #0x188]
     bx lr
