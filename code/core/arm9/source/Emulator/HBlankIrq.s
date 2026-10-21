@@ -21,6 +21,11 @@ arm_func emu_hblankIrq
     rsblos r13, r13, #31
     bichs r4, r4, #2 // HBLANK IRQ
 
+    // Install the DTCM IRQ stack once for the whole handler. r13 is trashed by
+    // the prologue above (the DS I/O base and the scanline test both write it),
+    // so neither the affine commit nor the DMA path below may push onto it.
+    ldr sp,= dtcmIrqStackEnd
+
     cmp lr, #160
         bge emu_hblankIrqReturn
 
@@ -51,7 +56,6 @@ arm_func emu_hblankIrq
 emu_hblankDmaSkipInstruction:
     bge emu_hblankIrqReturn
 
-    ldr sp,= dtcmIrqStackEnd
     push {r0-r3,r12}
 #ifndef GBAR3_TEST
     // These are replaced by nops when not active
