@@ -237,7 +237,31 @@ static inline void dma_immTransferRomSrc(u32 src, u32 dst, u32 byteCount, bool d
     // the end of the table (and read unrelated cache blocks / out of bounds).
     src &= ~0x06000000;
     u8* dstPtr = (u8*)dst;
-    do
+
+    // The first 2 MB of the rom is loaded linearly into main memory at boot and
+    // is kept coherent with SdCache by sdc_patchRom(). Copy that part straight
+    // out of the linear window in one contiguous slice: going through
+    // sdc_getRomBlock() would pointlessly load blocks that are already resident
+    // into evictable SdCache slots and issue SD reads for data that is in RAM.
+    if (src < ROM_LINEAR_END_GBA_ADDRESS)
+    {
+        u32 linearCount = ROM_LINEAR_END_GBA_ADDRESS - src;
+        if (linearCount > byteCount)
+            linearCount = byteCount;
+        const u8* linearSrc = (const u8*)(src - ROM_LINEAR_GBA_ADDRESS + ROM_LINEAR_DS_ADDRESS);
+        if (dma32)
+            mem_copy32(linearSrc, dstPtr, linearCount);
+        else
+            mem_copy16(linearSrc, dstPtr, linearCount);
+        src += linearCount;
+        dstPtr += linearCount;
+        byteCount -= linearCount;
+    }
+
+    // Anything that straddled the 2 MB boundary is paged high rom. Walk it one
+    // 4 KB SdCache block at a time so a transfer never reads past the end of the
+    // currently cached block into unrelated data.
+    while (byteCount > 0)
     {
         const void* cacheBlock = sdc_getRomBlock(src);
         u32 offset = src & SDC_BLOCK_MASK;
@@ -251,7 +275,7 @@ static inline void dma_immTransferRomSrc(u32 src, u32 dst, u32 byteCount, bool d
         src += remainingInBlock;
         dstPtr += remainingInBlock;
         byteCount -= remainingInBlock;
-    } while (byteCount > 0);
+    }
 }
 
 static inline bool fastDmaSourceAllowed(u32 srcRegion)
@@ -490,21 +514,21 @@ ITCM_CODE __attribute__((optimize("Os"))) static void dmaStartImmediate(int chan
     int srcStep = getSrcStep(control);
     if (src >= 0x08000000 && src < 0x0E000000)
     {
-        // rom always forces increment; also normalize the 0x0A/0x0C waitstate
-        // mirrors so the irq-forbidden replacement range below refers to the
-        // real sd cache blocks that the transfer will actually read.
+        // game pak sources always increment; strip the 0x0A/0x0C waitstate
+        // mirrors before the rom block lookup.
         srcStep = 1;
         src &= ~0x06000000;
     }
     int dstStep = getDstStep(control);
     bool dma32 = control & GBA_DMA_CONTROL_32BIT;
     u32 byteCount = count << (dma32 ? 2 : 1);
-    sdc_setIrqForbiddenReplacementRange((u32)src, byteCount);
+    // The SdCache protects the rom block it is currently filling from nested
+    // eviction on its own (sdc_loadRomBlockDirect pushes the block), so a whole
+    // transfer does not need to forbid a huge range of blocks up front.
     if (dma32)
         dma_immTransfer32(src, dst, byteCount, srcStep, dstStep);
     else
         dma_immTransfer16(src, dst, byteCount, srcStep, dstStep);
-    sdc_resetIrqForbiddenReplacementRange();
     if (channel == 3)
     {
         vm_disableNestedIrqs();

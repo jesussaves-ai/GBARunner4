@@ -12,8 +12,6 @@ extern u8 sdc_cache[SDC_BLOCK_COUNT][SDC_BLOCK_SIZE];
 ///        This table includes pointers to the linearly loaded part of the rom.
 extern void* sdc_romBlockToCacheBlock[SDC_ROM_BLOCK_COUNT];
 
-extern vu32 gSdCacheIrqForbiddenRomBlockReplacementRange;
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -84,23 +82,13 @@ static inline const void* sdc_getRomBlockWithoutIrqYielding(u32 romAddress)
     return data;
 }
 
-static inline void sdc_resetIrqForbiddenReplacementRange(void)
-{
-    gSdCacheIrqForbiddenRomBlockReplacementRange = 0;
-}
-
-static inline void sdc_setIrqForbiddenReplacementRange(u32 romAddress, u32 length)
-{
-    if (romAddress < 0x08000000 || romAddress >= 0x0E000000)
-    {
-        sdc_resetIrqForbiddenReplacementRange();
-        return;
-    }
-    romAddress = (romAddress << 7) >> 7;
-    u32 startRomBlock = romAddress >> SDC_BLOCK_SHIFT;
-    u32 endRomBlock = (romAddress + length + (SDC_BLOCK_SIZE - 1)) >> SDC_BLOCK_SHIFT;
-    gSdCacheIrqForbiddenRomBlockReplacementRange = startRomBlock | (endRomBlock << 16);
-}
+// Protection against a nested IRQ-driven rom load replacing a block that an
+// outer transfer is still reading is handled inside SdCache itself:
+// sdc_loadRomBlockDirect() pushes the active block onto a bounded stack and
+// loadRomBlock() refuses to pick those blocks as replacement victims. This is
+// re-entrant (each nesting level restores its parent's protection) and cannot
+// starve the evictable pool, so no caller-side forbidden-range bookkeeping is
+// required.
 
 /// @brief Initializes the sd cache.
 void sdc_init(void);

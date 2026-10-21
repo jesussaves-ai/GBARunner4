@@ -42,7 +42,18 @@ static u32 sBlockCount;
 
 static u32 sTabuLevel;
 static u32 sTabuBlocks[2];
-vu32 gSdCacheIrqForbiddenRomBlockReplacementRange;
+
+/// @brief Rom blocks whose cache buffer is currently in flight (or has just
+///        been loaded) and must therefore not be picked as a replacement victim
+///        while an enclosing rom load still reads it. A small stack is used so
+///        that nested HBlank/VBlank/Sound DMA rom loads can neither evict an
+///        outer transfer's active block nor clobber the outer protection on
+///        exit. The bounded depth also bounds the number of simultaneously
+///        forbidden blocks, so a huge transfer can never forbid more blocks than
+///        the evictable pool (which is always >= SDC_MIN_EVICTABLE_BLOCKS).
+#define SDC_MAX_ACTIVE_ROM_LOADS    4
+static u32 sActiveRomLoadCount;
+static u16 sActiveRomLoads[SDC_MAX_ACTIVE_ROM_LOADS];
 
 [[gnu::section(".ewram.bss")]]
 static DWORD sClusterTable[512];
@@ -323,24 +334,32 @@ static void* loadRomBlock(u32 romBlock, u32 cacheBlock)
     if (cacheBlock == SDC_BLOCK_INVALID)
     {
         cacheBlock = getBlockToReplace();
-        if ((arm_getCpsr() & 0x1F) == 0x12)
+        // Do not replace a block that an enclosing (possibly nested) rom load is
+        // still reading from. The active-load set has at most
+        // SDC_MAX_ACTIVE_ROM_LOADS entries, so this can never forbid so many
+        // blocks that getBlockToReplace() cannot find a victim.
+        while (true)
         {
-            u32 forbiddenReplacementRange = gSdCacheIrqForbiddenRomBlockReplacementRange;
-            if (forbiddenReplacementRange != 0)
+            u32 oldRomBlock = sCacheBlockToRomBlock[cacheBlock];
+            if (oldRomBlock == SDC_ROM_BLOCK_INVALID)
             {
-                u32 forbiddenReplacementRangeStart = forbiddenReplacementRange & 0xFFFF;
-                u32 forbiddenReplacementRangeEnd = forbiddenReplacementRange >> 16;
-                while (true)
+                break;
+            }
+            u32 activeRomLoads = sActiveRomLoadCount;
+            bool isActiveRomLoad = false;
+            for (u32 i = 0; i < activeRomLoads; i++)
+            {
+                if (sActiveRomLoads[i] == oldRomBlock)
                 {
-                    u32 oldRomBlock = sCacheBlockToRomBlock[cacheBlock];
-                    if (oldRomBlock == SDC_ROM_BLOCK_INVALID ||
-                        !(forbiddenReplacementRangeStart <= oldRomBlock && oldRomBlock < forbiddenReplacementRangeEnd))
-                    {
-                        break;
-                    }
-                    cacheBlock = getBlockToReplace();
+                    isActiveRomLoad = true;
+                    break;
                 }
             }
+            if (!isActiveRomLoad)
+            {
+                break;
+            }
+            cacheBlock = getBlockToReplace();
         }
     }
     u32 oldRomBlock = sCacheBlockToRomBlock[cacheBlock];
@@ -398,8 +417,24 @@ const void* sdc_loadRomBlockDirect(u32 romAddress)
     vm_enableNestedIrqs();
     // logAddress(romAddress);
     u32 romBlock = ((romAddress << 7) >> 7) / SDC_BLOCK_SIZE;
+
+    // Protect the block being loaded (and the cache buffer it is being filled
+    // into) from replacement by a nested IRQ driven rom load until we are done
+    // with it. The stack depth is restored on exit, so nesting is re-entrant and
+    // a nested HBlank/VBlank/Sound DMA restores the enclosing protection.
+    u32 activeRomLoads = sActiveRomLoadCount;
+    if (activeRomLoads < SDC_MAX_ACTIVE_ROM_LOADS)
+    {
+        sActiveRomLoads[activeRomLoads] = romBlock;
+        sActiveRomLoadCount = activeRomLoads + 1;
+    }
+
     void* cacheBlock = loadRomBlock(romBlock, SDC_BLOCK_INVALID);
+    // vm_disableNestedIrqs() can still dispatch a pending irq, so the block must
+    // stay protected until after it returns.
     vm_disableNestedIrqs();
+
+    sActiveRomLoadCount = activeRomLoads;
     return cacheBlock;
 }
 
@@ -449,7 +484,7 @@ void sdc_init(void)
     sCurrentFetch.cacheBlock = SDC_BLOCK_INVALID;
     sCurrentFetch.romBlock = SDC_ROM_BLOCK_INVALID;
     sRomPatchCount = 0;
-    gSdCacheIrqForbiddenRomBlockReplacementRange = 0;
+    sActiveRomLoadCount = 0;
     sTabuLevel = 0;
     sTabuBlocks[0] = SDC_BLOCK_INVALID;
     sTabuBlocks[1] = SDC_BLOCK_INVALID;
