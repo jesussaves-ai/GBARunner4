@@ -136,7 +136,25 @@ arm_func memu_store32Oam
     bx lr
 
 arm_func memu_store32Rom
-    bx lr
+    // GBA cart GPIO/RTC registers live at 0x080000C4..0x080000C8. The 16-bit
+    // game pak bus splits a 32-bit store into two 16-bit writes (addr and
+    // addr+2), so a single `str` that configures data+direction must reach the
+    // GPIO bridge as two 16-bit writes. Previously every 32-bit rom store was
+    // dropped, which silently lost RTC/GPIO writes made with a word store.
+    // Every other rom store remains a no-op.
+    bic r10, r8, #0xFE000000
+    sub r10, r10, #0xC4
+    cmp r10, #(0xC8 - 0xC4)
+        bxhi lr // not rom gpio
+
+    push {r0-r3,lr}
+    mov r0, r10 // offset
+    mov r1, r9 // low halfword
+    bl rio_write
+    add r0, r10, #2 // next register
+    mov r1, r9, lsr #16 // high halfword
+    bl rio_write
+    pop {r0-r3,pc}
 
 arm_func memu_store32Sram
     tst r8, #3
