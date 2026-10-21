@@ -7,7 +7,7 @@
 [![Target](https://img.shields.io/badge/CPU-ARM9%20ARM946E--S%20%40%2067%2F133%20MHz-blue)](#architecture--memory-budgets)
 [![License](https://img.shields.io/badge/license-MPL--2.0-informational)](#credits--license)
 
-> **GBARunner4** is a fork of [Gericom's GBARunner3](https://github.com/Gericom/GBARunner3) focused on **high-ROM compatibility, save robustness, and hardware-accurate peripheral emulation**. It is a **hardware-assisted DS homebrew solution** built for stock Nintendo DS, DSi, and 3DS hardware, launched from a **slot-1 flashcart** or a **DS-mode hardware bridge** such as the **DSpico (RP2040)**. Unlike standalone software emulators on other handhelds, it does not emulate the DS itself — it runs the original GBA code natively on the console's real ARM9/ARM7 processors.
+> **GBARunner4** is a fork of [Gericom's GBARunner3](https://github.com/Gericom/GBARunner3) by **[Jesus Saves (`jesussaves-ai`)](https://github.com/jesussaves-ai)** focused on **high-ROM compatibility, save robustness, and hardware-accurate peripheral emulation**. It is a **hardware-assisted DS homebrew solution** built for stock Nintendo DS, DSi, and 3DS hardware, launched from a **slot-1 flashcart** or a **DS-mode hardware bridge** such as the **DSpico (RP2040)**. Unlike standalone software emulators on other handhelds, it does not emulate the DS itself — it runs the original GBA code natively on the console's real ARM9/ARM7 processors.
 
 ---
 
@@ -42,6 +42,9 @@ This approach delivers near-native performance, but it requires an enormous amou
 - 🔊 Hardware-accurate **Direct Sound FIFO** depth with overflow clamping for click-free streaming audio.
 - 🖼️ Per-line **Mode 1 affine background** register latching for latency-sensitive racing titles.
 - 🧱 **Strictly static memory layout** with a hard 32 KB ITCM budget for zero-waitstate critical routines.
+- 📺 **Two-line boot diagnostics HUD** on the bottom screen (env line + `ID: <game code> | SAVE: <type>`), branded *GBARUNNER4 BY JESUS SAVES*, held ~1 s (A/Start to skip).
+- 🔄 **`L + R + Start + Select` soft-reset** hotkey, debounced on the ARM7 over 30 vblanks.
+- 🚀 **TWL auto-detection**: 134 MHz ARM9 clock and an 8 MB `.dsiram.bss` SdCache pool on DSi hardware.
 
 ### Target Hardware
 
@@ -128,8 +131,15 @@ The real GBA Direct Sound FIFO is **8 words (32 bytes) deep**, and the sound DMA
 
 ### Additional Fork Improvements
 
-- **Cart GPIO / RTC bridge** (`RomGpio`, `RomGpioRtc`) with an ARM7 RTC IPC service for games that poll a real-time clock via `0x080000C4`.
+- **Cart GPIO / RTC bridge** (`RomGpio`, `RomGpioRtc`) with an ARM7 RTC IPC service for games that poll a real-time clock via `0x080000C4`. 32-bit (word) GPIO stores are split into their two 16-bit writes so word-store RTC/GPIO configuration is not dropped, and the registers stay trapped and coherent across the 2 MB linear ROM pre-map.
 - **Whole-ROM patching for auxiliary patches** — `BadMixerPatch`, `HarvestMoonPatches`, and `SelfModifyingPatches` now use `sdc_searchRomSignature()` / `sdc_patchRom()` instead of assuming the first 2 MB.
+- **TWL/DSi support** — runtime DSi detection, an ARM9 134 MHz clock boost, and an 8 MB `.dsiram.bss` SdCache pool (vs. the 1 MB NTR ring), with a boot status badge that reports the active mode.
+- **2 MB linear ROM pre-mapping** — the first 2 MB of the cartridge is mapped directly at `0x02200000` and never goes through the SD cache; DMA and the memory emulator split cleanly at the `0x08200000` seam and normalize the `0x0A`/`0x0C` waitstate mirrors.
+- **JIT / DMA SMC coherency** — `jit_invalidateCodeRange()` re-processes IWRAM/EWRAM that was overwritten by DMA (and clears the aux bits + invalidates the I-cache) only when the range had actually been JIT-processed, so data DMA pays only a short scan.
+- **Timer IPC guards** — every timer `TMxCNT` write waits for room in the ARM9→ARM7 send FIFO before posting, so a dropped `SET_TIMER_RELOAD`/`SET_TIMER_CONTROL` can no longer desync the ARM7 direct-sound timer (pitch/crackle).
+- **Save robustness** — full-device flash chip-erase, capture of the SDK read/verify entry points before the whole-ROM signature search (high-ROM Flash titles), a correct SRAM category test, `0xFF` on reads past EOF, and mGBA-interoperable EEPROM `.sav` byte order.
+- **Super Mario Advance 4 (128 KB flash)** and the other mGBA-sourced game-id overrides.
+- **Two-line boot diagnostics HUD** and the **`L + R + Start + Select`** ARM7 soft-reset hotkey (flush a dirty save, then a clean reset).
 - **Numerous `.text`/ITCM size optimizations** (`-Os` hot paths, refactored FAT chains, disabled ArduinoJson float support, compile-time MPU tables, and more).
 
 ---
@@ -313,6 +323,7 @@ Key folders are governed by [`AGENTS.md`](AGENTS.md).
 
 ## Credits & License
 
+- **This fork (GBARunner4):** [Jesus Saves (`jesussaves-ai`)](https://github.com/jesussaves-ai) — high-ROM compatibility, save robustness, TWL/DSi support, peripheral and audio fixes, the boot diagnostics HUD, and the ARM7 soft-reset hotkey.
 - **Original project:** [Gericom/GBARunner3](https://github.com/Gericom/GBARunner3) — the hypervisor architecture, hicode cache mapping, and `libtwl`.
 - **Save override data:** derived from the [mGBA](https://github.com/mgba-emu/mgba) cartridge override tables (community save-type reference).
 - **toolchain:** [devkitPro](https://devkitpro.org/) (`devkitARM` / `libnds`).
