@@ -3,6 +3,7 @@
 #include <libtwl/gfx/gfx.h>
 #include <libtwl/gfx/gfxBackground.h>
 #include <libtwl/gfx/gfxPalette.h>
+#include <libtwl/mem/memVram.h>
 #include "Core/Environment.h"
 #include "StartupStatusIndicator.h"
 
@@ -11,6 +12,13 @@
 // offset 0, tilemap at 0x4000) and the center/mask layer (BG3: tilemap at
 // 0x1000) so the badge never collides with them, and it is cleared before
 // either is configured anyway.
+//
+// VRAM bank C sits at the sub BG window (0x06200000) only while it is mapped
+// to the sub engine (VRAMCNT_C = MST 4). At boot main.cpp leaves it mapped to
+// LCDC, which is required later so GbaBorderService can write the border into
+// bank C at its LCDC address (0x06840000) before the capture double buffer
+// remaps it. Show() therefore maps bank C to SUB_BG before touching it, and
+// Clear() puts it back to LCDC so the border/capture path is unaffected.
 #define STATUS_SUB_BG_BASE      0x06200000
 #define STATUS_TILEMAP_OFFSET   0x8000          // screen base block 16
 #define STATUS_TILES_OFFSET     0x14000         // char base block 5
@@ -100,6 +108,12 @@ void StartupStatusIndicator::Show()
     const bool clock134MHz = (REG_SCFG_CLK & SCFG_CLK_CPU_SPEED) != 0;
     const bool cache8MB = Environment::HasExtendedMainMemory();
 
+    // The badge lives in VRAM bank C, so it must be mapped to the sub engine
+    // background window (0x06200000) before any tile/tilemap data is written.
+    // main.cpp maps it to LCDC for the border/capture path; take it over here
+    // and hand it back in Clear().
+    mem_setVramCMapping(MEM_VRAM_C_SUB_BG_00000);
+
     const char* text;
     if (!twlMode)
         text = "NTR MODE";
@@ -132,17 +146,25 @@ void StartupStatusIndicator::Show()
     GFX_PLTT_BG_SUB[1] = twlMode ? STATUS_TWL_COLOR : STATUS_NTR_COLOR;
 
     REG_BG0CNT_SUB = STATUS_BG0CNT_VALUE;
+    // DISPLAY_BG0_ACTIVE: OR the sub BG0 enable into whatever sub layers are
+    // already active (no window is enabled yet, so BG0 is not masked out).
     REG_DISPCNT_SUB |= (1 << 8); // enable sub BG0
 }
 
 void StartupStatusIndicator::Clear()
 {
     // Disable the layer first, then wipe the tilemap so a later BG3 setup can
-    // never pick up stale entries.
+    // never pick up stale entries. The wipe must happen while bank C is still
+    // mapped to the sub BG window, so restore the LCDC mapping afterwards.
     REG_DISPCNT_SUB &= ~(1 << 8);
     REG_BG0CNT_SUB = 0;
 
     vu16* tilemap = (vu16*)(STATUS_SUB_BG_BASE + STATUS_TILEMAP_OFFSET);
     for (u32 i = 0; i < STATUS_TILEMAP_ENTRIES; i++)
         tilemap[i] = 0;
+
+    // Hand VRAM bank C back to LCDC so GbaBorderService can load the border
+    // through 0x06840000 and the capture double buffer can swap it to SUB_BG
+    // per frame exactly as before the badge was added.
+    mem_setVramCMapping(MEM_VRAM_C_LCDC);
 }
