@@ -32,6 +32,33 @@ static volatile u8 sMcuIrqFlag = false;
 static Arm7State sState;
 static ExitMode sExitMode;
 
+// In-game soft-reset hotkey: L + R + Select + Start held together. GBA/DS
+// REG_KEYINPUT is active LOW (0 = pressed), so the combination reads 0 in the
+// 0x030C mask. The combo must be held for SOFT_RESET_HOLD_FRAMES consecutive
+// vblanks so a stray simultaneous press cannot reset the game. Detected here on
+// the arm7 (per-vblank) so the arm9 pays no .itcm cost, and it reuses the proven
+// exit path (flush a dirty save, then cleanly restart the loader).
+#define SOFT_RESET_KEY_MASK         0x030C
+#define SOFT_RESET_HOLD_FRAMES      30
+static u32 sSoftResetHoldFrames = 0;
+
+static void checkSoftResetHotkey(void)
+{
+    if ((REG_KEYINPUT & SOFT_RESET_KEY_MASK) == 0)
+    {
+        if (++sSoftResetHoldFrames >= SOFT_RESET_HOLD_FRAMES)
+        {
+            sSoftResetHoldFrames = 0;
+            sExitMode = ExitMode::Reset;
+            sState = Arm7State::ExitRequested;
+        }
+    }
+    else
+    {
+        sSoftResetHoldFrames = 0;
+    }
+}
+
 static void vblankIrq(u32 irqMask)
 {
     rtos_signalEvent(&sVBlankEvent);
@@ -137,6 +164,7 @@ static void initializeArm7()
 
 static void updateArm7IdleState()
 {
+    checkSoftResetHotkey();
     checkMcuIrq();
     sGbaSaveIpcService.Update();
 
