@@ -9,3 +9,5 @@ build
 *.map
 *.bin
 code/bootstrap/nitrofiles
+out/
+GBARunner4.zip
