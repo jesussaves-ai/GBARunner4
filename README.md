@@ -263,7 +263,7 @@ make -C code
 docker run --rm -v "$PWD":/gba devkitpro/devkitarm:20230928 bash -c "cd /gba/code/test && make"
 ```
 
-The suite covers the ARM/Thumb memory emulator, the virtual-machine handlers, and the **JIT patcher** (Thumb `b cond` patch/decode round-trip and ARM control-flow patching). It publishes its aggregate result to the `gTestResults` symbol (`[0]='TEST'`, `[1]=failed`, `[2]=total`, `[3]='DONE'`) so a harness can read pass/fail directly from emulator memory.
+The suite covers the ARM/Thumb memory emulator, the virtual-machine handlers, and the **JIT patcher** (Thumb `b cond` patch/decode round-trip and ARM control-flow patching). It prints a pass/fail summary (and the name of every failing test) to the **top screen**, so it runs directly on real hardware such as a **DSpico** with no emulator debug output; it also publishes the aggregate result to the `gTestResults` symbol (`[0]='TEST'`, `[1]=failed`, `[2]=total`, `[3]='DONE'`) for scripted/headless runs.
 
 ---
 
