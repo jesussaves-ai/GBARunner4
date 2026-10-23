@@ -1,5 +1,7 @@
 #include "common.h"
 #include <memory>
+#include <cstdio>
+#include <nds.h>
 #include "gtest/gtest.h"
 #include "gmock/gmock.h"
 #include "core/Environment.h"
@@ -53,11 +55,32 @@ extern "C" void testMain(int argc, char* argv[])
     testing::InitGoogleMock(&argc, argv);
     int failed = RUN_ALL_TESTS();
 
+    auto* unit = testing::UnitTest::GetInstance();
+    int total = unit->total_test_count();
+
     // Publish the result for the automation harness (melonDS ARM9 GDB stub).
     gTestResults[0] = 0x54455354; // 'TEST'
     gTestResults[1] = (u32)failed;
-    gTestResults[2] = (u32)testing::UnitTest::GetInstance()->total_test_count();
+    gTestResults[2] = (u32)total;
     gTestResults[3] = 0x444F4E45; // 'DONE'
+
+    // Print the result on the DS screen so the suite can be run on real
+    // hardware (for example a DSpico) with no emulator debug output at all.
+    consoleDemoInit();
+    printf("\n GBARunner4 ARM9 tests\n");
+    printf(" --------------------\n");
+    printf(" failed: %d / %d\n\n", failed, total);
+    for (int ts = 0; ts < unit->total_test_suite_count(); ++ts)
+    {
+        const testing::TestSuite* suite = unit->GetTestSuite(ts);
+        for (int t = 0; t < suite->total_test_count(); ++t)
+        {
+            const testing::TestInfo* info = suite->GetTestInfo(t);
+            if (info->result()->Failed())
+                printf(" FAIL %s.%s\n", suite->name(), info->name());
+        }
+    }
+    printf("\n %s\n", failed == 0 ? "*** ALL PASS ***" : "*** FAILURES ***");
 
     // send semihosting exit command
     u32 agbMem = *(u32*)0x027FFF7C;
