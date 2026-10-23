@@ -89,7 +89,7 @@ The ARM946E-S tightly-coupled instruction memory (`0x00000000`, **exactly 32,768
 
 - The linker **enforces the budget by region length**, so an overflow fails the link rather than silently corrupting memory.
 - **Fixed address constraints are preserved** — the dispatcher tables in the `0x2000–0x3000` block are pinned to fixed addresses so dispatchers can compute jumps via bit shifts without pointer loads. `memu_thumbGetR0_0` remains at `0x3000`; any bytes added to that block are reclaimed inside it.
-- The current build keeps a **safe 1,144–1,344 byte headroom** (`32,768 − .itcm`) while remaining "nearly full" by design.
+- The current build keeps a **safe ~1,072–1,344 byte headroom** (`32,768 − .itcm`) while remaining "nearly full" by design.
 - Cold logic (save tag scanner, patchers, GPIO/RTC state machines, JSON, FAT chains) is deliberately kept out of `.itcm` and lives in `.text`/`.rodata`, with large read-only tables pushed into `.ewram`/`.ewram.bss`.
 
 ### 3. Linear ROM Pre-Mapping
@@ -182,16 +182,16 @@ Measured with `arm-none-eabi-size -A code/core/arm9/arm9.elf`:
 
 | Section | Size (bytes) | Region / Notes |
 | --- | ---: | --- |
-| `.text` | **59,664** | VRAM A — ARM9 code |
-| `.itcm` | **31,624 / 32,768** | ITCM — **1,144 B headroom** |
+| `.text` | **59,736** | VRAM A — ARM9 code |
+| `.itcm` | **31,696 / 32,768** | ITCM — **1,072 B headroom** |
 | `.dtcm` | **16,384 / 16,384** | DTCM — fully laid out |
 | `.rodata` | 3,668 | VRAM A |
 | `.data` | 36 | VRAM A |
 | `.ewram` | 3,608 | EWRAM |
-| `.ewram.bss` | **1,757,184** | EWRAM |
+| `.ewram.bss` | **1,691,648** | EWRAM |
 | `.vramhi.bss` | 49,152 | VRAM HI |
 | `.dsiram.bss` | **8,388,608** | DSi extended RAM (TWL cache pool) |
-| `.bss` | 808 | VRAM A |
+| `.bss` | 816 | VRAM A |
 
 > The ITCM is intentionally kept **nearly full**. If a change overflows it, the link fails — move code out of `.itcm` or shrink it.
 
@@ -203,7 +203,7 @@ The emulation core follows a strict **no `malloc`/`free`** policy:
 - Every buffer is **statically sized and placed into a fixed linker region**.
 - This guarantees deterministic timing, eliminates fragmentation, and prevents allocation failure during emulation.
 
-> ℹ️ A single fixed TLSF arena exists only for the **pre-emulation** splash/settings path and is never touched while a game is running.
+> ℹ️ A single fixed TLSF arena exists only for the **pre-emulation** splash/settings path and is never touched while a game is running. The optional 64 KB color-correction LUT is allocated from this arena once during display setup, and **only when color correction is enabled** (it is off by default), so it costs no static RAM in the common case.
 
 ---
 

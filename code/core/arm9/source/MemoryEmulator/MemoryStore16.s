@@ -41,10 +41,18 @@ arm_func memu_store16Io
     bx lr
 
 arm_func memu_store16Pltt
+    // Color correction is off by default; gColorLut only exists while it is on.
+    ldr r11,= gColorCorrectionEnabled
+    ldrb r11, [r11]
+    cmp r11, #0
+        biceq r11, r9, #0x8000
+        beq memu_store16PlttApply
     ldr r11,= gColorLut
+    ldr r11, [r11]
     bic r12, r9, #0x8000
     add r11, r11, r12, lsl #1
     ldrh r11, [r11]
+memu_store16PlttApply:
     bic r10, r8, #0x00FF0000
     bic r10, r10, #0x0000FC00
     ldr r12,= (gShadowPalette - 0x05000000)
