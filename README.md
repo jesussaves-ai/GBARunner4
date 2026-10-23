@@ -52,7 +52,7 @@ That approach delivers near-native performance, but it demands extreme care arou
 - 🧩 **Instruction-cache-mapped hicode** so games with code above the linear window still boot and run.
 - 💾 **Whole-ROM save-tag scanning** and eviction-safe, persistent ROM patching for Flash 512K/1M, EEPROM, and SRAM.
 - 🔊 **Direct Sound FIFO-reset and de-click overhaul** — click-free map transitions and track changes.
-- 🕹️ **Built-in Boktai solar-sensor emulation** (`Select + D-Pad Left/Right`) and full S-3511A RTC GPIO handling.
+- 🕹️ **Full S-3511A RTC GPIO handling** for clock-aware titles (Pokémon Ruby/Sapphire/Emerald).
 - 📺 **Multi-line boot diagnostics HUD** (branding + environment + `ID: <code> | SAVE: <type>`).
 - 🔄 **`L + R + Start + Select`** ARM7 soft-reset, plus **`L + R + Y`** DS Lite backlight cycling.
 
@@ -127,7 +127,6 @@ Save SDK routines frequently live in the **paged high ROM**, not the linear wind
 - **SD cache floor guard** — a permanent floor of `SDC_MIN_EVICTABLE_BLOCKS` (16) replaceable blocks prevents multi-patch sequences from underflowing the cache.
 - **Multi-vendor Flash support** — a `FLASH1M` override for *Super Mario Advance 4* (`AX4*`, 128 KB flash), plus a compact mGBA-sourced Game-ID override table (in `.ewram`, to keep the tight vrama region free) for tag-less and ambiguous titles (Classic NES `F…` codes, "liar carts" such as *Iridion II* and *Top Gun*, 8 KB EEPROM corrections, and more).
 - **S-3511A RTC GPIO** — writes to `0x080000C4/0xC6/0xC8` bridge to `rio_write` (including word stores split into their two 16-bit halves), served by the ARM7 `RtcIpcService`, so RTC-polling titles never hang on the serial ready bit.
-- **Boktai solar sensor** — *Boktai 1/2/3* (`U3I*`/`U32*`/`U33*`) get a modelled light sensor on the shared GPIO pins, adjustable in-game via **`Select + D-Pad Left/Right`**, so solar weapons recharge without overheating.
 
 ---
 
@@ -183,16 +182,16 @@ Measured with `arm-none-eabi-size -A code/core/arm9/arm9.elf`:
 
 | Section | Size (bytes) | Region / Notes |
 | --- | ---: | --- |
-| `.text` | **60,064** | VRAM A — ARM9 code |
+| `.text` | **59,664** | VRAM A — ARM9 code |
 | `.itcm` | **31,624 / 32,768** | ITCM — **1,144 B headroom** |
 | `.dtcm` | **16,384 / 16,384** | DTCM — fully laid out |
-| `.rodata` | 3,688 | VRAM A |
+| `.rodata` | 3,668 | VRAM A |
 | `.data` | 36 | VRAM A |
 | `.ewram` | 3,608 | EWRAM |
 | `.ewram.bss` | **1,757,184** | EWRAM |
 | `.vramhi.bss` | 49,152 | VRAM HI |
 | `.dsiram.bss` | **8,388,608** | DSi extended RAM (TWL cache pool) |
-| `.bss` | 812 | VRAM A |
+| `.bss` | 808 | VRAM A |
 
 > The ITCM is intentionally kept **nearly full**. If a change overflows it, the link fails — move code out of `.itcm` or shrink it.
 
@@ -254,7 +253,7 @@ make -C code
 ./verify.fish
 ```
 
-`verify.fish` runs a containerized build and prints the ARM9 section sizes, including the **ITCM usage** — the fastest way to confirm the 32 KB budget is intact. Use `./itcm-list.fish` to list the largest ITCM/code symbols when you are close to the limit.
+`verify.fish` runs a containerized build, prints the **ARM9 and ARM7** section sizes, and then **enforces the hardware-bounded regions**: `.itcm ≤ 32,768`, `.dtcm ≤ 16,384`, and `.vramhi.bss ≤ 49,152`. It fails with a non-zero exit code if any of them overflows, so the tight ITCM margin and the fully-used DTCM/VRAM-HI pools can never regress silently. Use `./itcm-list.fish` to list the largest ITCM/code symbols when you are close to the limit.
 
 ---
 
@@ -330,7 +329,7 @@ code/
 │   │       ├── JitPatcher/       # Dynamic ROM patching & instruction decoding
 │   │       ├── VirtualMachine/   # Hypervisor exception handlers
 │   │       ├── MemoryEmulator/   # Load/store tables & hicode cache mapping
-│   │       ├── Peripherals/      # DMA, sound, timers, graphics, GPIO/RTC, light sensor
+│   │       ├── Peripherals/      # DMA, sound, timers, graphics, GPIO/RTC
 │   │       ├── Save/             # Flash/EEPROM/SRAM emulation & tag scanner
 │   │       └── SdCache/          # Paged high-ROM block cache (NTR + TWL pools)
 │   └── common/           # Shared definitions
@@ -349,7 +348,7 @@ Key folders are governed by [`AGENTS.md`](AGENTS.md).
 
 ## Credits & License
 
-- **This fork (GBARunner4):** [Jesus Saves (`jesussaves-ai`)](https://github.com/jesussaves-ai) — high-ROM compatibility, save robustness, DSi/TWL acceleration, linear ROM pre-mapping, JIT SMC coherency, audio and peripheral fixes, the boot diagnostics HUD, the Boktai light sensor, and the ARM7 reset/backlight hotkeys.
+- **This fork (GBARunner4):** [Jesus Saves (`jesussaves-ai`)](https://github.com/jesussaves-ai) — high-ROM compatibility, save robustness, DSi/TWL acceleration, linear ROM pre-mapping, JIT SMC coherency, audio and peripheral fixes, the boot diagnostics HUD, and the ARM7 reset/backlight hotkeys.
 - **Original project:** [Gericom/GBARunner3](https://github.com/Gericom/GBARunner3) — the hypervisor architecture, hicode cache mapping, and `libtwl`.
 - **Save override data:** derived from the [mGBA](https://github.com/mgba-emu/mgba) cartridge override tables (community save-type reference).
 - **Toolchain:** [devkitPro](https://devkitpro.org/) (`devkitARM` / `libnds`).
