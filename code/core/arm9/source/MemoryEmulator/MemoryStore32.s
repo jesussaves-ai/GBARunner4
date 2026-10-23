@@ -49,13 +49,25 @@ arm_func memu_store32Io
     bx lr
 
 arm_func memu_store32Pltt
+    // Color correction is off by default; gColorLut only exists while it is on.
+    ldr r11,= gColorCorrectionEnabled
+    ldrb r11, [r11]
+    cmp r11, #0
+        beq memu_store32PlttDisabled
     ldr r11,= gColorLut
+    ldr r11, [r11]
     mov r12, r9, lsl #17
     add r12, r11, r12, lsr #16
     ldrh r12, [r12]
     bic r10, r9, #0x80000000
     add r11, r11, r10, lsr #15
     ldrh r11, [r11]
+    b memu_store32PlttApply
+memu_store32PlttDisabled:
+    bic r12, r9, #0x8000            // low 15-bit color
+    bic r11, r9, #0x80000000
+    mov r11, r11, lsr #16           // high 15-bit color
+memu_store32PlttApply:
     bic r10, r8, #0x00FF0000
     bic r10, r10, #0x0000FC00
     bic r10, r10, #3

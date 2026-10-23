@@ -1,17 +1,19 @@
 #include "common.h"
 #include <algorithm>
+#include <stdlib.h>
 #include "ColorLut.h"
 #include "GammaLut.h"
 
 // Based on https://gist.github.com/profi200/bfa7be60b3eecb8c43f59000f626c743
 
-// The 64 KB color-correction LUT is placed in .ewram.bss (DS main RAM) rather
-// than .bss: the 128 KB vrama region holding .text/.rodata/.bss is very tight,
-// and this table alone would otherwise consume half of it. It is read-only
-// indexed access from the (cold/warm, not hot-loop) palette path and is cached
-// by the ARM9 data cache exactly as it was in vrama, so there is no cost.
-[[gnu::section(".ewram.bss")]]
-u16 gColorLut[COLOR_LUT_SIZE];
+// Color correction is disabled by default, and the 64 KB correction LUT is only
+// needed while it is enabled. Allocating it from the heap on demand (instead of
+// a static .ewram.bss array) keeps 64 KB of main RAM free for the common case.
+// The palette store handlers only dereference gColorLut when
+// gColorCorrectionEnabled is non-zero, so a NULL gColorLut is safe.
+u16* gColorLut = nullptr;
+
+extern "C" u8 gColorCorrectionEnabled = 0;
 
 // When the 2d engine converts from 5 to 6 bit, the lsb bit will always be zero (i.e. 31 -> 62)
 static constexpr u32 rgb8ToRgb5(u32 value8)
@@ -94,16 +96,28 @@ static u16 applyColorCorrection(const u16 rgb5, const ColorProfile* preset, int 
 // Generate LUT using using the selected color profile and gamma index
 void clut_initColorCorrection(const ColorProfile* preset, int gammaIndex)
 {
+    if (gColorLut == nullptr)
+    {
+        gColorLut = (u16*)malloc(COLOR_LUT_SIZE * sizeof(u16));
+        if (gColorLut == nullptr)
+        {
+            // No room for the LUT: fall back to no correction (the default path).
+            gColorCorrectionEnabled = 0;
+            return;
+        }
+    }
+
     for (u32 i = 0; i < COLOR_LUT_SIZE; ++i)
     {
         gColorLut[i] = applyColorCorrection(i, preset, gammaIndex);
     }
+    gColorCorrectionEnabled = 1;
 }
 
 void clut_disableColorCorrection()
 {
-    for (u32 i = 0; i < COLOR_LUT_SIZE; ++i)
-    {
-        gColorLut[i] = i;
-    }
+    // The LUT (if it was ever built) is intentionally kept allocated so an
+    // in-game toggle cannot fail; only the enabled flag changes. With correction
+    // off the store handlers never read gColorLut.
+    gColorCorrectionEnabled = 0;
 }
