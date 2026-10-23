@@ -26,3 +26,17 @@ void sysipc_setBottomBacklight(bool enabled)
     while (ipc_isRecvFifoEmpty());
     ipc_recvWordDirect();
 }
+
+void sysipc_requestReset(void)
+{
+    sendSystemIpcMessage(SYSTEM_IPC_CMD_RESET, 0);
+    while (ipc_isRecvFifoEmpty());
+    ipc_recvWordDirect();
+}
+
+void sysipc_requestPowerOff(void)
+{
+    sendSystemIpcMessage(SYSTEM_IPC_CMD_POWER_OFF, 0);
+    while (ipc_isRecvFifoEmpty());
+    ipc_recvWordDirect();
+}

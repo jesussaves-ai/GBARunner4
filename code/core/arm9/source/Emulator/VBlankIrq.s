@@ -47,7 +47,7 @@ emu_vblankDmaJumpInstruction:
     // This is replaced by a nop when save needs to be checked
 .global emu_vblankIrqSkipSaveCheckInstruction
 emu_vblankIrqSkipSaveCheckInstruction:
-    b emu_vblankIrqReturn
+    b emu_vblankIrqCheckMenu
 #ifndef GBAR3_TEST
     ldr r13,= gGbaSaveShared
     mcr p15, 0, r13, c7, c6, 1 // invalidate range
@@ -59,8 +59,25 @@ emu_vblankIrqSkipSaveCheckInstruction:
     push {r0-r3,r12}
     bl sav_writeSaveToFile
     pop {r0-r3,r12}
-    b emu_vblankIrqReturn
+    b emu_vblankIrqCheckMenu
 #endif
+
+    // In-game menu. When L + R + Start are held (and Select is released) the
+    // guest is frozen here and igm_run() (cold .text) shows the menu on the sub
+    // screen until the player resumes. Any other vblank falls straight through.
+emu_vblankIrqCheckMenu:
+#ifndef GBAR3_TEST
+    ldr r13,= 0x04000130    // REG_KEYINPUT (active low)
+    ldrh r13, [r13]
+    and r13, r13, #0x030C   // L | R | Start | Select
+    cmp r13, #0x0004        // L,R,Start pressed (0), Select released (1)
+        bne emu_vblankIrqReturn
+    ldr sp,= dtcmIrqStackEnd
+    push {r0-r3,r12,lr}
+    bl igm_run
+    pop {r0-r3,r12,lr}
+#endif
+    b emu_vblankIrqReturn
 
 jumpToUpdateDisplayCaptureVramDInstruction:
     add pc, pc, #(updateDisplayCaptureVramD - jumpToCaptureUpdate - 8)
