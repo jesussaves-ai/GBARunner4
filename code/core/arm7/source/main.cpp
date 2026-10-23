@@ -32,6 +32,14 @@ static volatile u8 sMcuIrqFlag = false;
 static Arm7State sState;
 static ExitMode sExitMode;
 
+// Called from the system IPC service when the in-game menu requests a warm
+// reset (powerOff = 0) or a power off (powerOff = 1).
+extern "C" void arm7_requestExit(int powerOff)
+{
+    sExitMode = powerOff ? ExitMode::PowerOff : ExitMode::Reset;
+    sState = Arm7State::ExitRequested;
+}
+
 // In-game soft-reset hotkey: L + R + Select + Start held together. GBA/DS
 // REG_KEYINPUT is active LOW (0 = pressed), so the combination reads 0 in the
 // 0x030C mask. The combo must be held for SOFT_RESET_HOLD_FRAMES consecutive

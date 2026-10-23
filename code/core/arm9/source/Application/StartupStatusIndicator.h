@@ -27,4 +27,16 @@ public:
 
     /// @brief Clears the badge tilemap and disables the status BG0 layer.
     static void Clear();
+
+    /// @brief Prepares the sub BG0 overlay (font, cleared tilemap, layer) without
+    ///        the boot env/brand rows. Used by the in-game menu while the guest
+    ///        is paused. Must be paired with Clear().
+    static void BeginOverlay();
+
+    /// @brief Draws a centered text row on the overlay. Row 0..31.
+    /// @param highlight Renders the row with the highlight color.
+    static void DrawTextRow(u32 row, const char* text, bool highlight = false);
+
+    /// @brief Sets the overlay palette (backdrop, normal text, highlight text).
+    static void SetOverlayColors(u16 backdrop, u16 text, u16 highlight);
 };

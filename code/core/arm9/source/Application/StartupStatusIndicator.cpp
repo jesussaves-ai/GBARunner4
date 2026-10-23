@@ -178,7 +178,7 @@ vu16* statusTilemap()
 }
 
 /// @brief Writes a centered string into one tilemap row.
-void renderRow(u32 row, const char* text)
+void renderRow(u32 row, const char* text, u16 paletteBank)
 {
     u32 length = (u32)strlen(text);
     if (length > 32)
@@ -186,7 +186,25 @@ void renderRow(u32 row, const char* text)
     u32 startCol = (32 - length) / 2;
     vu16* tilemap = statusTilemap();
     for (u32 i = 0; i < length; i++)
-        tilemap[row * 32 + startCol + i] = glyphTileIndex(text[i]);
+        tilemap[row * 32 + startCol + i] = glyphTileIndex(text[i]) | (paletteBank << 12);
+}
+
+/// @brief Maps VRAM bank C to the sub BG window, builds the glyph tiles and
+///        clears the tilemap. Shared by the boot badge and the in-game menu.
+void beginOverlayImpl()
+{
+    mem_setVramCMapping(MEM_VRAM_C_SUB_BG_00000);
+
+    vu16* tiles = (vu16*)(STATUS_SUB_BG_BASE + STATUS_TILES_OFFSET);
+    writeGlyphTile(tiles, nullptr); // tile 0 = blank background tile
+    for (u32 i = 0; i < sGlyphCount; i++)
+        writeGlyphTile(tiles + (STATUS_GLYPH_TILE_BASE + i) * STATUS_TILE_HALFWORDS, sGlyphs[i].rows);
+
+    vu16* tilemap = statusTilemap();
+    for (u32 i = 0; i < STATUS_TILEMAP_ENTRIES; i++)
+        tilemap[i] = 0;
+
+    REG_BG0CNT_SUB = STATUS_BG0CNT_VALUE;
 }
 }
 
@@ -196,12 +214,6 @@ void StartupStatusIndicator::Show()
     const bool clock134MHz = (REG_SCFG_CLK & SCFG_CLK_CPU_SPEED) != 0;
     const bool cache8MB = Environment::HasExtendedMainMemory();
 
-    // The badge lives in VRAM bank C, so it must be mapped to the sub engine
-    // background window (0x06200000) before any tile/tilemap data is written.
-    // main.cpp maps it to LCDC for the border/capture path; take it over here
-    // and hand it back in Clear().
-    mem_setVramCMapping(MEM_VRAM_C_SUB_BG_00000);
-
     const char* text;
     if (!twlMode)
         text = "NTR MODE";
@@ -210,33 +222,15 @@ void StartupStatusIndicator::Show()
     else
         text = clock134MHz ? "TWL: 134MHZ | 1MB CACHE" : "TWL: 67MHZ | 1MB CACHE";
 
-    // Build the whole font once (16-bit VRAM stores only). Tile 0 is left blank
-    // because it is the tile every cleared map cell references, so the glyphs
-    // live at 1..count and the map entries point at 1 + glyphIndex.
-    vu16* tiles = (vu16*)(STATUS_SUB_BG_BASE + STATUS_TILES_OFFSET);
-    writeGlyphTile(tiles, nullptr); // tile 0 = blank background tile
-    for (u32 i = 0; i < sGlyphCount; i++)
-        writeGlyphTile(tiles + (STATUS_GLYPH_TILE_BASE + i) * STATUS_TILE_HALFWORDS, sGlyphs[i].rows);
+    beginOverlayImpl();
 
-    // Wipe the whole 32x32 tilemap before writing the status rows. Bank C can
-    // still hold leftovers from the border/splash/previous run and any stale
-    // entry would be drawn as a grid of garbage tiles behind and around the
-    // badge. Every wiped cell now resolves to the blank tile 0.
-    vu16* tilemap = statusTilemap();
-    for (u32 i = 0; i < STATUS_TILEMAP_ENTRIES; i++)
-        tilemap[i] = 0;
-
-    renderRow(STATUS_ROW_ENV, text);
-    renderRow(STATUS_ROW_BRAND, STATUS_BRAND_TEXT);
+    renderRow(STATUS_ROW_ENV, text, 0);
+    renderRow(STATUS_ROW_BRAND, STATUS_BRAND_TEXT, 0);
 
     GFX_PLTT_BG_SUB[0] = STATUS_BACKDROP_COLOR;
     GFX_PLTT_BG_SUB[1] = twlMode ? STATUS_TWL_COLOR : STATUS_NTR_COLOR;
 
-    REG_BG0CNT_SUB = STATUS_BG0CNT_VALUE;
-    // Force BG0 to be the only active sub layer. An |= here would leave any
-    // sub BG/OBJ/window layer enabled by an earlier boot stage live, which
-    // would render its own (uninitialised) VRAM over the badge. Bits 8..15 hold
-    // all the sub layer/window enables, so clear them and set BG0 only.
+    // At boot no other sub layer is configured yet: make BG0 the only one.
     REG_DISPCNT_SUB = (REG_DISPCNT_SUB & ~0xFF00u) | (1 << 8); // MODE_0_2D | DISPLAY_BG0_ACTIVE
 }
 
@@ -262,7 +256,31 @@ void StartupStatusIndicator::ShowGameInfo(u32 gameCode, const char* saveTypeDesc
     char text[40];
     mini_snprintf(text, sizeof(text), "ID: %s | SAVE: %s", id, saveTypeDescription);
 
-    renderRow(STATUS_ROW_GAME, text);
+    renderRow(STATUS_ROW_GAME, text, 0);
+}
+
+void StartupStatusIndicator::BeginOverlay()
+{
+    beginOverlayImpl();
+    SetOverlayColors(0x0000, 0x7FFF, 0x03E0); // black backdrop, white text, green highlight
+    // Force the sub engine into MODE_0 with only BG0 (and no windows), so the
+    // overlay is legible regardless of what mode the GBA display/capture left
+    // the sub engine in (enableCenterAndMask uses a bitmap mode where BG0 is
+    // hidden). The caller must restore REG_DISPCNT_SUB after Clear().
+    REG_DISPCNT_SUB = (REG_DISPCNT_SUB & ~0xFF07u) | (1 << 8); // MODE_0 | DISPLAY_BG0_ACTIVE
+}
+
+void StartupStatusIndicator::DrawTextRow(u32 row, const char* text, bool highlight)
+{
+    renderRow(row, text, highlight ? 1 : 0);
+}
+
+void StartupStatusIndicator::SetOverlayColors(u16 backdrop, u16 text, u16 highlight)
+{
+    GFX_PLTT_BG_SUB[0] = backdrop;
+    GFX_PLTT_BG_SUB[1] = text;
+    GFX_PLTT_BG_SUB[16] = backdrop;
+    GFX_PLTT_BG_SUB[17] = highlight;
 }
 
 void StartupStatusIndicator::Clear()
