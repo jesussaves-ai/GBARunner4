@@ -24,9 +24,11 @@ SOURCES		:=	source \
 				source/tests/MemoryEmulator/Arm \
 				source/tests/MemoryEmulator/Thumb \
 				source/tests/VirtualMachine \
+				source/tests/JitPatcher \
 				../../core/arm9/source/Emulator \
 				../../core/arm9/source/MemoryEmulator/Arm \
 				../../core/arm9/source/MemoryEmulator/Thumb \
+				../../core/arm9/source/JitPatcher \
 				../../core/arm9/source/Peripherals \
 				../../core/arm9/source/Peripherals/Graphics \
 				../../core/arm9/source/Peripherals/Interrupts \
