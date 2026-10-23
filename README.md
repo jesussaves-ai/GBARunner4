@@ -255,6 +255,16 @@ make -C code
 
 `verify.fish` runs a containerized build, prints the **ARM9 and ARM7** section sizes, and then **enforces the hardware-bounded regions**: `.itcm ≤ 32,768`, `.dtcm ≤ 16,384`, and `.vramhi.bss ≤ 49,152`. It fails with a non-zero exit code if any of them overflows, so the tight ITCM margin and the fully-used DTCM/VRAM-HI pools can never regress silently. Use `./itcm-list.fish` to list the largest ITCM/code symbols when you are close to the limit.
 
+### Automated Tests
+
+`code/test/` builds a **gtest-on-ARM9** `test.nds` that runs under a DS emulator supporting no$gba's nocash debug output (`0x04FFFA00`):
+
+```bash
+docker run --rm -v "$PWD":/gba devkitpro/devkitarm:20230928 bash -c "cd /gba/code/test && make"
+```
+
+The suite covers the ARM/Thumb memory emulator, the virtual-machine handlers, and the **JIT patcher** (Thumb `b cond` patch/decode round-trip and ARM control-flow patching). It publishes its aggregate result to the `gTestResults` symbol (`[0]='TEST'`, `[1]=failed`, `[2]=total`, `[3]='DONE'`) so a harness can read pass/fail directly from emulator memory.
+
 ---
 
 ## GitHub Release Packaging & Automation
