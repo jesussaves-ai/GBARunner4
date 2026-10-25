@@ -4,6 +4,7 @@
 
 [![Nightly Build](https://github.com/jesussaves-ai/GBARunner4/actions/workflows/nightly.yml/badge.svg)](https://github.com/jesussaves-ai/GBARunner4/actions/workflows/nightly.yml)
 [![Release](https://github.com/jesussaves-ai/GBARunner4/actions/workflows/release.yml/badge.svg)](https://github.com/jesussaves-ai/GBARunner4/actions/workflows/release.yml)
+[![Lint](https://github.com/jesussaves-ai/GBARunner4/actions/workflows/lint.yml/badge.svg)](https://github.com/jesussaves-ai/GBARunner4/actions/workflows/lint.yml)
 [![Platform](https://img.shields.io/badge/platform-Nintendo%20DS%20%7C%20DSi%20%7C%203DS-9cf)](#target-hardware)
 [![CPU](https://img.shields.io/badge/CPU-ARM9%20ARM946E--S%20%40%2067%2F134%20MHz-blue)](#architecture--memory-budgets)
 [![License](https://img.shields.io/badge/license-MPL--2.0-informational)](#credits--license)
