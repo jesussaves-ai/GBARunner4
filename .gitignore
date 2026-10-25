@@ -10,4 +10,6 @@ build
 *.bin
 code/bootstrap/nitrofiles
 out/
+dist/
 GBARunner4.zip
+lint-report.txt

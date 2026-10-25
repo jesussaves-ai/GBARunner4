@@ -255,6 +255,19 @@ make -C code
 
 `verify.fish` runs a containerized build, prints the **ARM9 and ARM7** section sizes, and then **enforces the hardware-bounded regions**: `.itcm ≤ 32,768`, `.dtcm ≤ 16,384`, and `.vramhi.bss ≤ 49,152`. It fails with a non-zero exit code if any of them overflows, so the tight ITCM margin and the fully-used DTCM/VRAM-HI pools can never regress silently. Use `./itcm-list.fish` to list the largest ITCM/code symbols when you are close to the limit.
 
+### Static Analysis
+
+`lint.sh` runs **clang-tidy** over `code/core/{arm9,arm7}` (excluding third-party code) against the host devkitARM headers, using a project `.clang-tidy` config tuned for this freestanding ARM codebase:
+
+```bash
+./lint.sh                                   # whole core
+./lint.sh code/core/arm9/source/SdCache/SdCache.c
+./lint.sh --checks '-*,clang-analyzer-*'    # override the check set
+CLANG_TIDY=clang-tidy-18 ./lint.sh
+```
+
+It prints a per-file finding count, a summary, and writes the full findings to `lint-report.txt`. Requires `clang-tidy` and `DEVKITPRO` (defaults to `/opt/devkitpro`). It is a development aid only and is not part of the build.
+
 ---
 
 ## GitHub Release Packaging & Automation

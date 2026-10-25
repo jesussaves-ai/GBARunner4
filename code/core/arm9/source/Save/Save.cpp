@@ -20,7 +20,7 @@
 #define DEFAULT_SAVE_SIZE   (32 * 1024)
 
 [[gnu::section(".ewram.bss")]]
-u8 gSaveData[SAVE_DATA_SIZE] alignas(32);
+alignas(32) u8 gSaveData[SAVE_DATA_SIZE];
 
 [[gnu::section(".ewram.bss")]]
 FIL gSaveFile alignas(32);

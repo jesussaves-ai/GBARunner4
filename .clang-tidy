@@ -1,0 +1,41 @@
+# GBARunner4 static-analysis configuration.
+#
+# Scoped to the project's own core code (code/core). Third-party sources
+# (FatFS, tlsf, ArduinoJson) are excluded by lint.sh. Header findings are
+# filtered to code/core so libnds/libtwl noise is ignored.
+#
+# The check set is deliberately high-signal and low-noise for a freestanding,
+# bare-metal ARM codebase: real bugs and undefined behaviour first (analyzers,
+# bugprone, performance), not style. Style is intentionally not enforced here.
+---
+Checks: >
+  -*,
+  clang-analyzer-*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -bugprone-implicit-widening-of-multiplication-result,
+  -bugprone-signed-char-misuse,
+  -bugprone-branch-clone,
+  -bugprone-misplaced-widening-cast,
+  -bugprone-switch-missing-default-case,
+  -bugprone-signed-bitwise,
+  -bugprone-multi-level-implicit-pointer-conversion,
+  performance-*,
+  -performance-no-int-to-ptr,
+  -performance-enum-size,
+  portability-*,
+  -portability-avoid-pragma-once,
+  -portability-no-assembler
+
+WarningsAsErrors: ''
+HeaderFilterRegex: '.*/code/core/.*'
+SystemHeaders: false
+UseColor: true
+FormatStyle: none
+
+CheckOptions:
+  - key: bugprone-suspicious-stringview-data-usage.internal-strings-only
+    value: 'false'
+  - key: bugprone-reserved-identifier.AllowedIdentifiers
+    value: '_.*;__.*'

@@ -63,7 +63,7 @@ FIL gFile;
 GbaHeader gRomHeader;
 
 [[gnu::section(".vramhi.bss")]]
-u32 gGbaBios[16 * 1024 / 4] alignas(256);
+alignas(256) u32 gGbaBios[16 * 1024 / 4];
 
 /// @brief Opcodes returned by bios reads.
 u32 memu_biosOpcodes[4]
