@@ -11,19 +11,27 @@
 # install that contains libnds (defaults to /opt/devkitpro).
 #
 # Usage:
-#   ./lint.sh                     # lint the whole core
+#   ./lint.sh                     # lint the whole core (fails on findings)
 #   ./lint.sh <files...>          # lint specific files
+#   ./lint.sh --soft              # report only; never fail
 #   ./lint.sh --checks '-*,bugprone-*'   # override the check set
 #   CLANG_TIDY=clang-tidy-18 ./lint.sh   # pick a specific clang-tidy
 # ---------------------------------------------------------------------------
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TIDY="${CLANG_TIDY:-clang-tidy}"
 DEVKITPRO="${DEVKITPRO:-/opt/devkitpro}"
 REPORT="$ROOT/lint-report.txt"
 
-if ! command -v "$TIDY" >/dev/null 2>&1; then
+# Locate clang-tidy: explicit CLANG_TIDY, then the unversioned name, then the
+# newest versioned binary (CI runners often only ship clang-tidy-NN).
+TIDY="${CLANG_TIDY:-}"
+if [ -z "$TIDY" ]; then
+    for c in clang-tidy clang-tidy-19 clang-tidy-18 clang-tidy-17 clang-tidy-16 clang-tidy-15 clang-tidy-14; do
+        if command -v "$c" >/dev/null 2>&1; then TIDY="$c"; break; fi
+    done
+fi
+if [ -z "$TIDY" ] || ! command -v "$TIDY" >/dev/null 2>&1; then
     echo "❌ clang-tidy not found on PATH (install clang-tools, or set CLANG_TIDY)." >&2
     exit 1
 fi
@@ -41,10 +49,12 @@ if [ -z "$CXXINC" ]; then
 fi
 
 CHECKS_OVERRIDE=""
+SOFT=0
 FILES=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --checks) CHECKS_OVERRIDE="$2"; shift 2 ;;
+        --soft) SOFT=1; shift ;;
         -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
         *) FILES+=("$1"); shift ;;
     esac
@@ -133,6 +143,11 @@ echo "---"
 echo "clean: $clean   with findings: $flagged   skipped: $skipped"
 if [ "$flagged" -gt 0 ]; then
     echo "Full findings: ${REPORT#"$ROOT"/}"
+    if [ "$SOFT" -eq 0 ]; then
+        echo "❌ $flagged file(s) with findings"
+        exit 1
+    fi
 else
     rm -f "$REPORT"
 fi
+echo "✅ clang-tidy clean"

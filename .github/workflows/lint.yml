@@ -1,0 +1,39 @@
+name: Lint
+
+on:
+  push:
+    paths-ignore:
+      - 'README.md'
+      - 'docs/**'
+  pull_request:
+    paths-ignore:
+      - 'README.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+jobs:
+  clang-tidy:
+    runs-on: ubuntu-latest
+    name: clang-tidy (code/core)
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install clang-tidy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-tidy
+
+      - name: Install devkitPro (devkitARM + libnds)
+        run: |
+          wget -q https://apt.devkitpro.org/install-devkitpro-pacman
+          sudo bash ./install-devkitpro-pacman
+          sudo dkp-pacman -Syu --noconfirm
+          sudo dkp-pacman -S --noconfirm --needed devkitARM libnds
+
+      - name: Run clang-tidy
+        run: ./lint.sh
+        env:
+          DEVKITPRO: /opt/devkitpro
