@@ -59,6 +59,11 @@ static void video_cb(const void* data, unsigned w, unsigned h, size_t pitch)
     write_ppm(g_out, data, w, h, pitch);   // last frame wins
 }
 
+static void log_printf(enum retro_log_level level, const char* fmt, ...)
+{
+    (void)level; (void)fmt;
+}
+
 static void audio_cb(int16_t l, int16_t r) { (void)l; (void)r; }
 static size_t audio_batch_cb(const int16_t* d, size_t frames) { (void)d; return frames; }
 static void input_poll_cb(void) { }
@@ -102,7 +107,11 @@ static bool env_cb(unsigned cmd, void* data)
         case RETRO_ENVIRONMENT_GET_INPUT_BITMASKS:
             return true;
         case RETRO_ENVIRONMENT_GET_LOG_INTERFACE:
-            return false;
+        {
+            struct retro_log_callback* cb = (struct retro_log_callback*)data;
+            cb->log = log_printf;
+            return true;
+        }
         default:
             return false;
     }
