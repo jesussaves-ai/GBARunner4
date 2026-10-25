@@ -5,6 +5,18 @@
 #include "MemoryEmulator/RomDefs.h"
 #include "JitArm.h"
 
+// Known unsupported ARM forms (each currently traps via armJitNotImplemented()
+// and therefore needs a new trap encoding *and* a runtime handler before it can
+// be completed; changing these safely requires the GBA test-ROM harness):
+//   * ALU{S} pc, Rn, Rm with a *register-shifted register* operand (bit4=1).
+//     The imm-shift form is folded to an undefined opcode and serviced by
+//     vm_armUndefinedAluSPCImm (.itcm); the reg-shift form has no encoding.
+//   * Post-indexed `LDR pc, [Rn], #imm` (P=0). Only pre-indexed is folded.
+//   * ALU ops on pc other than SUB/ADD/MOV in jit_handleArmUndefined (AND, EOR,
+//     RSB, ADC, SBC, RSC, ORR, BIC, MVN); the rare S=1 exception-return forms
+//     of these need CPSR<-SPSR handling that the handler does not do.
+//   * Unrecognised undefined Thumb encodings (jit_handleThumbUndefined default).
+
 [[gnu::noreturn]]
 static void armJitNotImplemented()
 {
@@ -23,23 +35,28 @@ static void armEncodeAluPc(u32* ptr, u32 instruction, u32 base)
         | ((instruction & 0x00000FFF) << 5); // op2
 }
 
-[[gnu::noinline]]
-static u32 armGetShiftedOperand(u32 value, u32 shiftType, u32 shiftAmount)
+/// @brief Applies an ARM data-processing shift operand (ARM ARM "Shifts").
+/// @param shiftType 0..3 = LSL, LSR, ASR, ROR.
+/// @param shiftAmount The 5-bit field. The special #0 encodings mean: LSR#0 is
+///        a shift by 32 (result 0), ASR#0 is a shift by 32 (sign fill), and
+///        ROR#0 is RRX (rotate right by one bit through the carry flag).
+/// @param carry The current CPSR carry bit (bit 29), consumed by RRX.
+static u32 armGetShiftedOperand(u32 value, u32 shiftType, u32 shiftAmount, u32 carry)
 {
     switch (shiftType)
     {
-        case 0:
-            return value << shiftAmount;
-        case 1:
-            if (shiftAmount != 0)
-                return value >> shiftAmount;
-            break;
-        case 2:
-            if (shiftAmount != 0)
-                return (u32)((int)value >> shiftAmount);
-            break;
+        case 0: // LSL
+            return shiftAmount == 0 ? value : (value << shiftAmount);
+        case 1: // LSR
+            return shiftAmount == 0 ? 0 : (value >> shiftAmount);
+        case 2: // ASR
+            return shiftAmount == 0 ? (u32)((int)value >> 31)
+                                    : (u32)((int)value >> shiftAmount);
+        default: // ROR (#0 = RRX)
+            if (shiftAmount == 0)
+                return (value >> 1) | (carry << 31);
+            return (value >> shiftAmount) | (value << (32 - shiftAmount));
     }
-    armJitNotImplemented();
 }
 
 bool jit_processArmInstruction(u32* ptr)
@@ -270,7 +287,7 @@ __attribute__((optimize("Os"))) u32* jit_handleArmUndefined(u32 instruction, u32
             u32 rm = registers[(instruction >> 5) & 0xF];
             u32 shiftType = (instruction >> 10) & 0x3;
             u32 shiftAmount = (instruction >> 12) & 0x1F;
-            op2 = armGetShiftedOperand(rm, shiftType, shiftAmount);
+            op2 = armGetShiftedOperand(rm, shiftType, shiftAmount, (cpsr >> 29) & 1);
         }
         else
         {
@@ -326,7 +343,7 @@ __attribute__((optimize("Os"))) u32* jit_handleArmUndefined(u32 instruction, u32
         u32 rm = registers[(instruction >> 5) & 0xF];
         u32 shiftType = (instruction >> 13) & 0x3;
         u32 shiftAmount = (instruction >> 15) & 0x1F;
-        u32 op2 = armGetShiftedOperand(rm, shiftType, shiftAmount);
+        u32 op2 = armGetShiftedOperand(rm, shiftType, shiftAmount, (cpsr >> 29) & 1);
         u32 address = (rn + op2) & ~3;
         u32 branchDestination;
         if (address >= ROM_LINEAR_DS_ADDRESS && address < ROM_LINEAR_END_DS_ADDRESS)
