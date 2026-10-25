@@ -14,6 +14,7 @@
 #   ./build-test.sh <rom.gba> [out.nds]      # default out: dist-test/GBARunner3-test.nds
 # ---------------------------------------------------------------------------
 set -u
+set -o pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROM="${1:-}"
@@ -61,8 +62,22 @@ PY
 echo "embedded $(basename "$ROM") ($SIZE bytes) + BIOS ($BIOS_SIZE bytes)"
 
 mkdir -p "$(dirname "$OUT")"
+# By default the test build also writes /_gba/result.bmp (the captured DS
+# screen) to the SD. Set GBAR3_SCREENSHOT=0 to build without it.
+DEFS="GBAR3_EMBED_ROM=1"
+if [ "${GBAR3_SCREENSHOT:-1}" != "0" ]; then
+    DEFS="$DEFS GBAR3_SCREENSHOT=1"
+fi
 docker run --rm -v "$ROOT":/gba devkitpro/devkitarm:20230928 bash -c \
-    "cd /gba/code/bootstrap && make GBAR3_EMBED_ROM=1 2>&1 | tail -3"
+    "cd /gba/code/bootstrap && make clean >/dev/null 2>&1 && make $DEFS 2>&1 | tail -3" || {
+    echo "❌ test build failed" >&2
+    exit 1
+}
+
+if [ ! -f "$ROOT/code/bootstrap/GBARunner3.nds" ]; then
+    echo "❌ test build produced no .nds" >&2
+    exit 1
+fi
 
 cp -f "$ROOT/code/bootstrap/GBARunner3.nds" "$OUT"
 echo "✅ test build: $OUT"

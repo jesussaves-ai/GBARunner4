@@ -71,6 +71,11 @@ GbaHeader gRomHeader;
 [[gnu::section(".vramhi.bss")]]
 alignas(256) u32 gGbaBios[16 * 1024 / 4];
 
+#ifdef GBAR3_SCREENSHOT
+// Implemented in Emulator/TestScreenshot.cpp (test build).
+extern "C" void test_screenshotInit(void);
+#endif
+
 /// @brief Opcodes returned by bios reads.
 u32 memu_biosOpcodes[4]
 {
@@ -543,7 +548,16 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     startSplashScreenAnimation();
 
     bool mountResult;
-#ifdef GBAR3_EMBED_ROM
+#if defined(GBAR3_EMBED_ROM) && defined(GBAR3_SCREENSHOT)
+    // Test build with screenshots: the ROM and BIOS are embedded, but the
+    // filesystem is still mounted so the captured result can be written to the
+    // SD. A mount failure is not fatal (the game still runs, just no file).
+    if (shouldMountDsiSd(argc, argv))
+        mountDsiSd();
+    else
+        mountDldi();
+    mountResult = true;
+#elif defined(GBAR3_EMBED_ROM)
     // Test build: the ROM and BIOS are embedded; no filesystem is used.
     mountResult = true;
 #else
@@ -558,6 +572,12 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
         GFX_PLTT_BG_MAIN[0] = 0x1F << 10;
         while (1);
     }
+
+#ifdef GBAR3_SCREENSHOT
+    // Test build: open the screenshot output files now (on the main stack);
+    // the VBlank path only seeks/writes/syncs them.
+    test_screenshotInit();
+#endif
 
     // if (Environment::SupportsAgbSemihosting())
         // mountAgbSemihosting();
@@ -611,6 +631,12 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     // display and border take over the sub screen.
     StartupStatusIndicator::Clear();
 
+#ifdef GBAR3_SCREENSHOT
+    // Test build: use full-screen output. The center/mask path also drives the
+    // display capture unit (DISPCAPCNT) every VBlank, which would clobber the
+    // screenshot capture.
+    gAppSettingsService.GetAppSettings().displaySettings.enableCenterAndMask = false;
+#endif
     const auto& displaySettings = gAppSettingsService.GetAppSettings().displaySettings;
     gGbaDisplayConfigurationService.ApplyDisplaySettings(displaySettings);
     if (displaySettings.enableCenterAndMask)

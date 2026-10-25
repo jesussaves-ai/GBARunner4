@@ -256,6 +256,24 @@ make -C code
 
 `verify.fish` runs a containerized build, prints the **ARM9 and ARM7** section sizes, and then **enforces the hardware-bounded regions**: `.itcm ≤ 32,768`, `.dtcm ≤ 16,384`, and `.vramhi.bss ≤ 49,152`. It fails with a non-zero exit code if any of them overflows, so the tight ITCM margin and the fully-used DTCM/VRAM-HI pools can never regress silently. Use `./itcm-list.fish` to list the largest ITCM/code symbols when you are close to the limit.
 
+It cleans first: the test build compiles the same objects with different `-D` flags and make does not track flag changes, so a stale object would otherwise be reported.
+
+### Test Build & Hardware Test Scoreboard
+
+`build-test.sh` produces a **separate** test build that embeds a GBA ROM (and the GBA BIOS) in the ARM9 core, so no ROM or `_gba/` config is needed on the card:
+
+```bash
+./build-test.sh /path/to/rom.gba        # -> dist-test/GBARunner3-test.nds
+```
+
+The test build also **captures the DS screen to the SD card** so a test ROM's result can be read back as a file rather than off the screen:
+
+- after a fixed number of frames it copies the DS main-engine output into VRAM bank C and writes **`/_gba/result.bmp`** (256×192, 24-bit) plus **`/_gba/result.txt`** (a few diagnostic values);
+- the capture is triggered from the VBlank IRQ, the same way the save pipeline already writes to SD from VBlank;
+- the normal build is untouched — everything is behind `GBAR3_EMBED_ROM` / `GBAR3_SCREENSHOT`, and the filesystem is only mounted for this variant.
+
+Build without the screenshot output with `GBAR3_SCREENSHOT=0 ./build-test.sh …`. This is the build the bundled `jsmolka/gba-tests` conformance ROMs are run through: a passing ROM shows a blank screen, a failing one prints `Failed test N`, which now lands in `/_gba/result.bmp`.
+
 ### Static Analysis
 
 `lint.sh` runs **clang-tidy** over `code/core/{arm9,arm7}` (excluding third-party code) against the host devkitARM headers, using a project `.clang-tidy` config tuned for this freestanding ARM codebase:

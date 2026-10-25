@@ -74,11 +74,23 @@ ifdef GBAR3_EMBED_ROM
 CFLAGS	+=	-DGBAR3_EMBED_ROM
 endif
 
+# Test build: capture the DS main engine to VRAM and write /_gba/result.bmp to
+# the SD after a fixed number of frames (see Emulator/TestScreenshot.cpp).
+ifdef GBAR3_SCREENSHOT
+CFLAGS	+=	-DGBAR3_SCREENSHOT
+endif
+
 CXXFLAGS	:= $(CFLAGS) -std=gnu++23 -Wno-volatile -fno-rtti -fno-exceptions -fno-threadsafe-statics\
 				-Wsuggest-override -Werror=suggest-override
 
 ASFLAGS	:=	-g $(ARCH) $(INCLUDE)
 LDFLAGS	=	-T ../gbarunner9.ld -g $(ARCH) -Wl,-Map,$(notdir $*.map),--use-blx,--no-warn-rwx-segments,--gc-sections -ffunction-sections -fdata-sections
+
+# The screenshot hook is in assembly too (Emulator/VBlankIrq.s), so the flag
+# must reach the assembler as well as the C/C++ compiler.
+ifdef GBAR3_SCREENSHOT
+ASFLAGS	+=	-DGBAR3_SCREENSHOT
+endif
 
 LIBS	:= -ltwl9 -lnds9
 

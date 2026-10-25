@@ -4,6 +4,14 @@
 #include "AsmMacros.inc"
 
 arm_func emu_vblankIrq
+#ifdef GBAR3_SCREENSHOT
+    // Test build: tick the screenshot helper (it writes /_gba/result.bmp to the
+    // SD on and after the capture frame). Runs on the DTCM irq stack.
+    ldr r13,= dtcmIrqStackEnd
+    push {r0-r3,r12,lr}
+    bl test_vblankTick
+    pop {r0-r3,r12,lr}
+#endif
     // For center and mask display capture has to be enabled every frame
     // and the buffers need to be swapped. Skip the whole block when the
     // display capture is not active.
