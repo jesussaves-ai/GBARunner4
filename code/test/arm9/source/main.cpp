@@ -12,6 +12,10 @@
 
 ILogger* gLogger;
 
+/// @brief Referenced by the shared VMDtcm.s BIOS jump vector. The test harness
+///        does not run the GBA BIOS, so this is only a placeholder buffer.
+u32 gGbaBios[16 * 1024 / 4] alignas(256);
+
 static void initLogger()
 {
     std::unique_ptr<IOutputStream> outputStream;

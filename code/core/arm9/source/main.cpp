@@ -597,7 +597,9 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     sdc_invalidateCacheBlockRange(0, SAVE_TAG_SCANNER_TEMP_BUFFER_SIZE / SDC_BLOCK_SIZE);
     SelfModifyingPatches().ApplyPatches(gAppSettingsService.GetAppSettings().runSettings);
 
+#ifndef GBAR3_EMBED_ROM
     waitSplashScreenAnimation();
+#endif
     stopSplashScreenAnimation();
     delete sSplashScreen;
     sSplashScreen = nullptr;

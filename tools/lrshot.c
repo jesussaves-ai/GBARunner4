@@ -134,9 +134,44 @@ static void opt_store(const char* key, const char* val)
     snprintf(g_opt_vals[g_opt_count], sizeof(g_opt_vals[0]), "%s", val ? val : "");
     g_opt_count++;
 }
+// Overrides from LRSHOT_SET_OPTIONS="key=value;key2=value2" take priority over
+// whatever defaults the core registers, so a core option can be forced.
+#define MAX_OVR 32
+static char g_ovr_keys[MAX_OVR][64];
+static char g_ovr_vals[MAX_OVR][128];
+static int g_ovr_count;
+
+static void opt_override(const char* key, const char* val)
+{
+    if (!key || !key[0] || g_ovr_count >= MAX_OVR) return;
+    snprintf(g_ovr_keys[g_ovr_count], sizeof(g_ovr_keys[0]), "%s", key);
+    snprintf(g_ovr_vals[g_ovr_count], sizeof(g_ovr_vals[0]), "%s", val ? val : "");
+    g_ovr_count++;
+}
+static void opt_overrides_from_env(void)
+{
+    const char* env = getenv("LRSHOT_SET_OPTIONS");
+    if (!env) return;
+    char buf[2048];
+    snprintf(buf, sizeof(buf), "%s", env);
+    char* save = NULL;
+    for (char* tok = strtok_r(buf, ";", &save); tok; tok = strtok_r(NULL, ";", &save))
+    {
+        char* eq = strchr(tok, '=');
+        if (!eq) continue;
+        *eq = 0;
+        opt_override(tok, eq + 1);
+    }
+}
 static const char* opt_get(const char* key)
 {
     if (!key) return NULL;
+    for (int i = 0; i < g_ovr_count; i++)
+        if (strcmp(g_ovr_keys[i], key) == 0)
+        {
+            fprintf(stderr, "opt override %s=%s\n", key, g_ovr_vals[i]);
+            return g_ovr_vals[i];
+        }
     for (int i = 0; i < g_opt_count; i++)
         if (strcmp(g_opt_keys[i], key) == 0) return g_opt_vals[i];
     return NULL;
@@ -295,6 +330,7 @@ int main(int argc, char** argv)
     mkdir("/tmp/lrshot", 0755);
     mkdir(g_sys, 0755);
     mkdir(g_save, 0755);
+    opt_overrides_from_env();
 
     void* handle = dlopen(core_path, RTLD_LAZY | RTLD_LOCAL);
     if (!handle) { fprintf(stderr, "dlopen: %s\n", dlerror()); return 1; }
