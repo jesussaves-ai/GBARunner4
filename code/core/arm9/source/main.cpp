@@ -656,6 +656,11 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     // capture double-buffer), which is simpler and fully headless-capturable.
     gAppSettingsService.GetAppSettings().displaySettings.enableCenterAndMask = false;
 #endif
+#ifdef GBAR3_EMBED_ROM
+    // Test build: the bootstrap's splash is still mapped on the main engine
+    // BG0/BG1; disable those layers so the guest's BG is actually visible.
+    REG_DISPCNT &= ~((1u << 8) | (1u << 9));
+#endif
     const auto& displaySettings = gAppSettingsService.GetAppSettings().displaySettings;
     gGbaDisplayConfigurationService.ApplyDisplaySettings(displaySettings);
     if (displaySettings.enableCenterAndMask)
@@ -675,7 +680,12 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     setupJit();
     dma_init();
     gbas_init();
+#ifndef GBAR3_EMBED_ROM
     gRomGpio.Initialize((rio_registers_t*)sdc_loadRomBlockForPatching(RIO_GBA_ADDRESS));
+#else
+    // Test build: no SD cache. The RTC/GPIO peripheral is irrelevant for the
+    // CPU test ROMs, so skip its initialization.
+#endif
     dc_flushRange((void*)ROM_LINEAR_DS_ADDRESS, ROM_LINEAR_SIZE);
     dc_flushRange(gGbaBios, sizeof(gGbaBios));
     ic_invalidateAll();
