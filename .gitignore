@@ -11,5 +11,7 @@ build
 code/bootstrap/nitrofiles
 out/
 dist/
+dist-test/
 GBARunner4.zip
 lint-report.txt
+code/core/arm9/source/EmbeddedRom.h

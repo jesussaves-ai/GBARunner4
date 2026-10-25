@@ -69,6 +69,11 @@ CFLAGS	:=	-g -Wall -O2\
 
 CFLAGS	+=	$(INCLUDE)
 
+# Test build: embed a GBA ROM in the ARM9 core and bypass DLDI/SD (see main.cpp).
+ifdef GBAR3_EMBED_ROM
+CFLAGS	+=	-DGBAR3_EMBED_ROM
+endif
+
 CXXFLAGS	:= $(CFLAGS) -std=gnu++23 -Wno-volatile -fno-rtti -fno-exceptions -fno-threadsafe-statics\
 				-Wsuggest-override -Werror=suggest-override
 
