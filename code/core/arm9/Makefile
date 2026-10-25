@@ -92,6 +92,11 @@ ifdef GBAR3_SCREENSHOT
 ASFLAGS	+=	-DGBAR3_SCREENSHOT
 endif
 
+# The headless report hook is in assembly too (Emulator/VBlankIrq.s).
+ifdef GBAR3_EMBED_ROM
+ASFLAGS	+=	-DGBAR3_EMBED_ROM
+endif
+
 LIBS	:= -ltwl9 -lnds9
 
 #---------------------------------------------------------------------------------

@@ -68,8 +68,14 @@ DEFS="GBAR3_EMBED_ROM=1"
 if [ "${GBAR3_SCREENSHOT:-1}" != "0" ]; then
     DEFS="$DEFS GBAR3_SCREENSHOT=1"
 fi
+# libtwl must be built before the bootstrap links; a plain `make -C bootstrap`
+# only works when a previous full build already produced libtwl9/libtwl7.
+# The core object trees are removed explicitly: the test build compiles the
+# same sources with different -D flags and make does not track flag changes.
 docker run --rm -v "$ROOT":/gba devkitpro/devkitarm:20230928 bash -c \
-    "cd /gba/code/bootstrap && make clean >/dev/null 2>&1 && make $DEFS 2>&1 | tail -3" || {
+    "cd /gba/code && make -C libs/libtwl >/dev/null 2>&1 && \
+     rm -rf core/arm9/build core/arm7/build && \
+     cd bootstrap && make clean >/dev/null 2>&1 && make $DEFS 2>&1 | tail -3" || {
     echo "❌ test build failed" >&2
     exit 1
 }

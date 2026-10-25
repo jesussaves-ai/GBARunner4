@@ -35,8 +35,51 @@ static void initLogger()
     gLogger = new PlainLogger(LogLevel::All, std::move(outputStream));
 }
 
+// ---------------------------------------------------------------------------
+// Headless test report.
+//
+// The DS test ROM normally prints through the no$gba debug ring, which a plain
+// libretro frontend cannot see. This struct lives in DS main RAM so tools/lrshot
+// can read the result straight out of RETRO_MEMORY_SYSTEM_RAM. Magic and field
+// order are a hard ABI with tools/lrshot.c.
+// ---------------------------------------------------------------------------
+#define TEST_SUMMARY_MAGIC 0x54535452u  // "RTST"
+
+struct TestSummary
+{
+    volatile u32 magic;
+    volatile u32 stage;      // 1 = testMain entered, 2 = RUN_ALL_TESTS finished
+    volatile u32 total;
+    volatile u32 passed;
+    volatile u32 failed;
+    volatile u32 rc;
+    volatile char firstFailure[64];
+};
+
+[[gnu::section(".ewram.bss")]]
+static volatile TestSummary sTestSummary;
+
+static void publishSummary(u32 stage, int rc, const char* firstFailure)
+{
+    sTestSummary.total = testing::UnitTest::GetInstance()->total_test_count();
+    sTestSummary.passed = testing::UnitTest::GetInstance()->successful_test_count();
+    sTestSummary.failed = testing::UnitTest::GetInstance()->failed_test_count();
+    sTestSummary.rc = (u32)rc;
+    u32 i = 0;
+    if (firstFailure)
+        while (firstFailure[i] && i < sizeof(sTestSummary.firstFailure) - 1)
+        {
+            sTestSummary.firstFailure[i] = firstFailure[i];
+            i++;
+        }
+    sTestSummary.firstFailure[i] = 0;
+    sTestSummary.stage = stage;
+    sTestSummary.magic = TEST_SUMMARY_MAGIC;
+}
+
 extern "C" void testMain(int argc, char* argv[])
 {
+    publishSummary(1, 0, nullptr);
     Environment::Initialize();
 
     initLogger();
@@ -44,7 +87,26 @@ extern "C" void testMain(int argc, char* argv[])
     memu_initializeArmDispatchTable();
     vm_initializeUndefinedArmTable();
     testing::InitGoogleMock(&argc, argv);
-    RUN_ALL_TESTS();
+    int rc = RUN_ALL_TESTS();
+
+    const char* firstFailure = nullptr;
+    const testing::UnitTest* unitTest = testing::UnitTest::GetInstance();
+    for (int s = 0; s < unitTest->total_test_suite_count() && !firstFailure; s++)
+    {
+        const testing::TestSuite* suite = unitTest->GetTestSuite(s);
+        if (!suite)
+            continue;
+        for (int i = 0; i < suite->total_test_count(); i++)
+        {
+            const testing::TestInfo* info = suite->GetTestInfo(i);
+            if (info && !info->result()->Passed())
+            {
+                firstFailure = info->name();
+                break;
+            }
+        }
+    }
+    publishSummary(2, rc, firstFailure);
 
     // send semihosting exit command
     u32 agbMem = *(u32*)0x027FFF7C;

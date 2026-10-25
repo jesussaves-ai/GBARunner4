@@ -12,6 +12,13 @@ arm_func emu_vblankIrq
     bl test_vblankTick
     pop {r0-r3,r12,lr}
 #endif
+#ifdef GBAR3_EMBED_ROM
+    // Headless test build: advance the main-RAM report frame counter.
+    ldr r13,= dtcmIrqStackEnd
+    push {r0-r3,r12,lr}
+    bl test_reportFrame
+    pop {r0-r3,r12,lr}
+#endif
     // For center and mask display capture has to be enabled every frame
     // and the buffers need to be swapped. Skip the whole block when the
     // display capture is not active.

@@ -274,6 +274,26 @@ The test build also **captures the DS screen to the SD card** so a test ROM's re
 
 Build without the screenshot output with `GBAR3_SCREENSHOT=0 ./build-test.sh …`. This is the build the bundled `jsmolka/gba-tests` conformance ROMs are run through: a passing ROM shows a blank screen, a failing one prints `Failed test N`, which now lands in `/_gba/result.bmp`.
 
+### Headless Test Runner
+
+`tools/headless-test.sh` runs the embedded-ROM build without a window, a screen or an SD card:
+
+```bash
+./tools/headless-test.sh /path/to/rom.gba
+FRAMES=1200 ./tools/headless-test.sh /path/to/rom.gba /usr/lib/libretro/desmume_libretro.so
+```
+
+It builds the `GBAR3_EMBED_ROM` variant, resolves the address of `gTestReport` from `arm9.elf`, runs the ROM under a libretro DS core via `tools/lrshot.c`, and reads the result straight out of the core's `RETRO_MEMORY_SYSTEM_RAM`:
+
+- `code/core/arm9/source/Emulator/TestReport.{h,cpp}` publishes the boot stage, a result code and a VBlank frame counter in `.ewram.bss` (DS main RAM), so no FatFs/DLDI/emulated SD access is needed;
+- the runner prints one `REPORT magic=… stage=… result=… code=… frame=… debug=…` line and exits non-zero if the build never reaches the VM (`stage < 100`) or if a guest reports a failure (`result=2`);
+- the final emulator frame is saved as a PPM for inspection.
+
+`tools/lrshot.c` is self-contained (`tools/libretro.h` is vendored) and supplies the ROM to cores in memory as well as by path, which melonDS requires.
+
+> ⚠️ **Emulator limitation (known):** the VM starts under DeSmuME (`stage=100`), but DeSmuME's libretro core does not deliver VBlank IRQs to GBARunner's system-mode VM (`frame=0`), and melonDS rejects the ARM9 system-mode switch used by the hypervisor. Screen-level conformance results therefore still need a core that models ARM9 system mode, IRQs and the MPU accurately (or real hardware); the runner reports this case explicitly instead of pretending the test passed.
+
+
 ### Static Analysis
 
 `lint.sh` runs **clang-tidy** over `code/core/{arm9,arm7}` (excluding third-party code) against the host devkitARM headers, using a project `.clang-tidy` config tuned for this freestanding ARM codebase:

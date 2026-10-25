@@ -40,6 +40,7 @@
 #include "Application/GbaDisplayConfigurationService.h"
 #include "Application/GbaBorderService.h"
 #include "Application/SplashScreen.h"
+#include "Emulator/TestReport.h"
 #include "Application/StartupStatusIndicator.h"
 #include "Patches/PatchSwi.h"
 #include "Patches/SelfModifyingPatches.h"
@@ -74,6 +75,7 @@ alignas(256) u32 gGbaBios[16 * 1024 / 4];
 #ifdef GBAR3_SCREENSHOT
 // Implemented in Emulator/TestScreenshot.cpp (test build).
 extern "C" void test_screenshotInit(void);
+extern "C" void test_stageMark(u32 stage);
 #endif
 
 /// @brief Opcodes returned by bios reads.
@@ -511,6 +513,7 @@ extern u32 hicodeUndefinedData[];
 
 extern "C" void gbaRunnerMain(int argc, char* argv[])
 {
+    test_reportStage(1);
     heap_init();
 
     REG_DISPCNT = 0x10000;
@@ -535,8 +538,10 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     sys_set3DGeometryEnginePower(true); // enable geometry engine to generate gx fifo irq
     REG_GXSTAT = 0; // gx fifo irqs must be off
 
+    test_reportStage(2);
     Environment::Initialize();
     setupLogger();
+    test_reportStage(3);
 
     mem_setMainMemoryPriority(EXMEMCNT_MAIN_MEM_PRIO_ARM7);
 
@@ -545,7 +550,11 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     // the GBA display and border are configured.
     StartupStatusIndicator::Show();
 
+    test_reportStage(4);
+#ifndef GBAR3_EMBED_ROM
     startSplashScreenAnimation();
+#endif
+    test_reportStage(5);
 
     bool mountResult;
 #if defined(GBAR3_EMBED_ROM) && defined(GBAR3_SCREENSHOT)
@@ -567,6 +576,7 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
         mountResult = mountDldi();
 #endif
 
+    test_reportStage(6);
     if (!mountResult)
     {
         GFX_PLTT_BG_MAIN[0] = 0x1F << 10;
@@ -582,14 +592,21 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     // if (Environment::SupportsAgbSemihosting())
         // mountAgbSemihosting();
 
+    test_reportStage(7);
     gAppSettingsService.TryLoadAppSettings(SETTINGS_FILE_PATH);
+    test_reportStage(8);
 
     patch_resetSwiPatches();
     loadGbaBios();
     relocateGbaBios();
     applyBiosVmPatches();
     const char* romPath = argc > 1 ? argv[1] : DEFAULT_ROM_FILE_PATH;
+    test_reportStage(9);
     loadGbaRom(romPath);
+    test_reportStage(10);
+#ifdef GBAR3_SCREENSHOT
+    test_stageMark(10);
+#endif
     char* romExtension = strrchr(romPath, '.');
     if (romExtension)
     {
@@ -616,32 +633,38 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     // those stale mappings so the guest reloads (and re-patches) them on demand.
     sdc_invalidateCacheBlockRange(0, SAVE_TAG_SCANNER_TEMP_BUFFER_SIZE / SDC_BLOCK_SIZE);
     SelfModifyingPatches().ApplyPatches(gAppSettingsService.GetAppSettings().runSettings);
+    test_reportStage(11);
 
 #ifndef GBAR3_EMBED_ROM
     waitSplashScreenAnimation();
 #endif
+    test_reportStage(12);
     stopSplashScreenAnimation();
     delete sSplashScreen;
     sSplashScreen = nullptr;
 
     // Hold the badge so both diagnostic lines and the branding are readable.
+    test_reportStage(13);
     holdBootBadge();
+    test_reportStage(14);
 
     // The boot status badge has served its purpose; remove it before the GBA
     // display and border take over the sub screen.
     StartupStatusIndicator::Clear();
+    test_reportStage(15);
 
 #ifdef GBAR3_SCREENSHOT
     // Test build: use full-screen output. The center/mask path also drives the
     // display capture unit (DISPCAPCNT) every VBlank, which would clobber the
     // screenshot capture.
     gAppSettingsService.GetAppSettings().displaySettings.enableCenterAndMask = false;
-    // Test build: skip the GBA BIOS boot intro so the captured frame is the
-    // ROM's own output (the purple "GAME BOY" intro otherwise dominates early).
-    gAppSettingsService.GetAppSettings().runSettings.skipBiosIntro = true;
 #endif
     const auto& displaySettings = gAppSettingsService.GetAppSettings().displaySettings;
     gGbaDisplayConfigurationService.ApplyDisplaySettings(displaySettings);
+    test_reportStage(16);
+#ifdef GBAR3_SCREENSHOT
+    test_stageMark(20);
+#endif
     if (displaySettings.enableCenterAndMask)
     {
         gGbaBorderService.SetupBorder(displaySettings.borderImage, gRomHeader.gameCode);
@@ -668,13 +691,33 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     setupIWramDataCache();
     setupEWramDataCache();
     setupArm9Clock();
+    test_reportStage(17);
 
+    test_reportStage(18);
+#ifndef GBAR3_EMBED_ROM
+    // HiCodeCache maps paged (>2 MB) ROM blocks through ARM9 cache lockdown.
+    // The embedded test ROM is always served from the 2 MB linear window and
+    // cache-lockdown CP15 operations are not emulated by every DS core.
     hic_initialize();
+#endif
+    test_reportStage(19);
     vm_nestedIrqLevel = 0;  // restore nested irq level
+#ifdef GBAR3_SCREENSHOT
+    test_stageMark(30);
+#endif
     rtos_setIrqMask(RTOS_IRQ_VBLANK);
     rtos_ackIrqMask(~0u);
     REG_IME = 1;
     gfx_setVBlankIrqEnabled(true);
+#ifdef GBAR3_EMBED_ROM
+    // The test build skips startSplashScreenAnimation(), which is the routine
+    // that normally clears the CPU I bit. Without this the VM never receives a
+    // VBlank IRQ (no GBA timer/DMA/IRQ progress at all).
+    arm_enableIrqs();
+    // Headless test build: skip the emulated GBA BIOS boot animation so the
+    // guest ROM is entered deterministically on the first instruction.
+    gAppSettingsService.GetAppSettings().runSettings.skipBiosIntro = true;
+#endif
     const auto& runSettings = gAppSettingsService.GetAppSettings().runSettings;
     VirtualMachine virtualMachine
     {
@@ -683,6 +726,11 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
         &gGbaBios[0x128 >> 2]
     };
     context_t runContext { };
+#ifdef GBAR3_SCREENSHOT
+    test_stageMark(40);
+#endif
+    test_reportStage(100);
     virtualMachine.Run(&runContext);
+    test_reportStage(101);
     while (true);
 }

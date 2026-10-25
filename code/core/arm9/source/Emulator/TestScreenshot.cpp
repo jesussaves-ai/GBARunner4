@@ -19,7 +19,7 @@
 
 // Number of guest frames to run before capturing. The bundled GBA test ROMs
 // finish drawing well within this, and it leaves room for a boot splash.
-#define SCREENSHOT_FRAME_COUNT  300
+#define SCREENSHOT_FRAME_COUNT  600
 
 #define SCREEN_WIDTH    256
 #define SCREEN_HEIGHT   192
@@ -81,6 +81,11 @@ static void buildBmpHeader(void)
     putLe32(sBmpHeader + 42, 2835);             // y pixels per meter
 }
 
+/// @brief Writes "stage=N" to the result file so a hang before the VM starts can
+///        be pinpointed (the VBlank heartbeat only runs once the VM is up).
+/// @note Stage 1 = screenshots armed, 2 = BMP file only, 3 = BMP open failed.
+extern "C" void test_stageMark(u32 stage);
+
 /// @brief Opens the output files from the main thread (large stack) so the IRQ
 ///        path never has to call f_open.
 extern "C" void test_screenshotInit(void)
@@ -88,6 +93,22 @@ extern "C" void test_screenshotInit(void)
     f_mkdir("/_gba");   // ensure the output directory exists (ignore result)
     sBmpReady = (sBmpFile.Open(RESULT_BMP_PATH, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK);
     sTxtReady = (sTxtFile.Open(RESULT_TXT_PATH, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK);
+    test_stageMark(sBmpReady ? (sTxtReady ? 1 : 2) : 3);
+}
+
+/// @brief Writes "stage=N" to the result file so a hang before the VM starts can
+///        be pinpointed (the VBlank heartbeat only runs once the VM is up).
+extern "C" void test_stageMark(u32 stage)
+{
+    if (!sTxtReady)
+        return;
+    char* p = appendStr(sTxt, "stage=");
+    p += mini_snprintf(p, 24, "%u", stage);
+    *p++ = '\n';
+    u32 written;
+    sTxtFile.Seek(0);
+    sTxtFile.Write(sTxt, (u32)(p - sTxt), written);
+    sTxtFile.Sync();
 }
 
 static void writeScreenshot(void)
@@ -153,7 +174,7 @@ extern "C" void test_vblankTick(void)
 
     // Heartbeat: keep the diagnostic file current so we can tell how far the
     // tick gets even if the capture never fires (e.g. the guest is stuck).
-    if (sTxtReady && (sFrame % 30) == 1)
+    if (sTxtReady && (sFrame == 1 || (sFrame % 120) == 0))
         writeDiagnostics(REG_DISPCAPCNT);
 
     if (sState == 0)

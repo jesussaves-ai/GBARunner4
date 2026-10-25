@@ -361,30 +361,71 @@ int main(int argc, char** argv)
 
     retro_init();
 
+    // Some cores (melonDS) declare need_fullpath=false and expect the frontend
+    // to supply the ROM in memory; others (DeSmuME) use the path only. Provide
+    // both so the same harness works with every DS core.
+    FILE* rom_file = fopen(rom_path, "rb");
+    if (!rom_file) { perror("fopen(rom)"); return 1; }
+    fseek(rom_file, 0, SEEK_END);
+    long rom_size = ftell(rom_file);
+    fseek(rom_file, 0, SEEK_SET);
+    void* rom_data = malloc((size_t)rom_size);
+    if (!rom_data || fread(rom_data, 1, (size_t)rom_size, rom_file) != (size_t)rom_size)
+    {
+        fprintf(stderr, "could not read rom %s\n", rom_path);
+        fclose(rom_file);
+        return 1;
+    }
+    fclose(rom_file);
+
     struct retro_game_info gi;
     memset(&gi, 0, sizeof(gi));
     gi.path = rom_path;
+    gi.data = rom_data;
+    gi.size = (size_t)rom_size;
     if (!retro_load_game(&gi))
     {
         fprintf(stderr, "retro_load_game failed\n");
+        free(rom_data);
         retro_deinit();
         return 1;
     }
+    free(rom_data);
 
     for (int i = 0; i < frames; i++)
         retro_run();
 
-    const char* dump = getenv("LRSHOT_DUMP");
-    if (dump && get_mem_data && get_mem_size)
+    void* sysram = NULL;
+    size_t sysram_size = 0;
+    if (get_mem_data && get_mem_size)
     {
-        void* d = get_mem_data(RETRO_MEMORY_SYSTEM_RAM);
-        size_t n = get_mem_size(RETRO_MEMORY_SYSTEM_RAM);
-        if (d && n)
+        sysram = get_mem_data(RETRO_MEMORY_SYSTEM_RAM);
+        sysram_size = get_mem_size(RETRO_MEMORY_SYSTEM_RAM);
+    }
+
+    const char* dump = getenv("LRSHOT_DUMP");
+    if (dump && sysram && sysram_size)
+    {
+        FILE* f = fopen(dump, "wb");
+        if (f) { fwrite(sysram, 1, sysram_size, f); fclose(f); fprintf(stderr, "dumped %zu bytes system RAM\n", sysram_size); }
+    }
+    else if (dump) fprintf(stderr, "system RAM not exposed by core\n");
+
+    // GBARunner headless report (see code/core/arm9/source/Emulator/TestReport.h).
+    // LRSHOT_REPORT is the *DS address* of gTestReport (read from the ELF by the
+    // test script); the struct lives in system RAM at 0x02000000..0x023FFFFF.
+    const char* rep = getenv("LRSHOT_REPORT");
+    if (rep && sysram && sysram_size)
+    {
+        unsigned long addr = strtoul(rep, NULL, 0);
+        if (addr >= 0x02000000ul && addr + 24 <= 0x02000000ul + sysram_size)
         {
-            FILE* f = fopen(dump, "wb");
-            if (f) { fwrite(d, 1, n, f); fclose(f); fprintf(stderr, "dumped %zu bytes system RAM\n", n); }
+            const uint32_t* r = (const uint32_t*)((const uint8_t*)sysram + (addr - 0x02000000ul));
+            printf("REPORT magic=%08x stage=%u result=%u code=%08x frame=%08x debug=%08x\n",
+                   r[0], r[1], r[2], r[3], r[4], r[5]);
+            fflush(stdout);
         }
-        else fprintf(stderr, "system RAM not exposed by core\n");
+        else fprintf(stderr, "report address %s is outside system RAM\n", rep);
     }
 
     retro_unload_game();
