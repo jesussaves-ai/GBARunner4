@@ -646,7 +646,9 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
 
     // The boot status badge has served its purpose; remove it before the GBA
     // display and border take over the sub screen.
+#ifndef GBAR3_EMBED_ROM
     StartupStatusIndicator::Clear();
+#endif
 #ifdef GBAR3_EMBED_ROM
     StartupStatusIndicator::DrawTextRow(20, "M4");
 #endif
@@ -663,6 +665,12 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
 #endif
     const auto& displaySettings = gAppSettingsService.GetAppSettings().displaySettings;
     gGbaDisplayConfigurationService.ApplyDisplaySettings(displaySettings);
+#ifdef GBAR3_EMBED_ROM
+    *(volatile u32*)0x023F0004 = 0xA1A1A1A1; // after display setup
+#endif
+#ifdef GBAR3_EMBED_ROM
+    StartupStatusIndicator::DrawTextRow(20, "D1");
+#endif
     if (displaySettings.enableCenterAndMask)
     {
         gGbaBorderService.SetupBorder(displaySettings.borderImage, gRomHeader.gameCode);
@@ -675,11 +683,17 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     memset((void*)((u32)GFX_BG_MAIN + 0x40000), 0, 128 * 1024); // vram B
     memset((void*)GFX_OBJ_MAIN, 0, 32 * 1024);
     memset(emu_ioRegisters, 0, sizeof(emu_ioRegisters));
+#ifdef GBAR3_EMBED_ROM
+    *(volatile u32*)0x023F0008 = 0xC0C0C0C0; // after memsets
+#endif
     memu_initializeArmDispatchTable();
     vm_initializeUndefinedArmTable();
     setupJit();
     dma_init();
     gbas_init();
+#ifdef GBAR3_EMBED_ROM
+    *(volatile u32*)0x023F000C = 0xC1C1C1C1; // after gbas_init
+#endif
 #ifndef GBAR3_EMBED_ROM
     gRomGpio.Initialize((rio_registers_t*)sdc_loadRomBlockForPatching(RIO_GBA_ADDRESS));
 #else
@@ -694,13 +708,28 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     setupIWramDataCache();
     setupEWramDataCache();
     setupArm9Clock();
+#ifdef GBAR3_EMBED_ROM
+    *(volatile u32*)0x023F0010 = 0xC2C2C2C2; // after cache/clock setup
+#endif
 
+#ifndef GBAR3_EMBED_ROM
     hic_initialize();
+#endif
     vm_nestedIrqLevel = 0;  // restore nested irq level
+#ifdef GBAR3_EMBED_ROM
+    *(volatile u32*)0x023F0014 = 0xC3C3C3C3; // after hic_initialize
+#endif
     rtos_setIrqMask(RTOS_IRQ_VBLANK);
     rtos_ackIrqMask(~0u);
     REG_IME = 1;
     gfx_setVBlankIrqEnabled(true);
+#ifdef GBAR3_EMBED_ROM
+    StartupStatusIndicator::DrawTextRow(20, "VM");
+#endif
+    // Test build: try skipping the BIOS boot-intro path.
+#ifdef GBAR3_EMBED_ROM
+    gAppSettingsService.GetAppSettings().runSettings.skipBiosIntro = true;
+#endif
     const auto& runSettings = gAppSettingsService.GetAppSettings().runSettings;
     VirtualMachine virtualMachine
     {
@@ -709,6 +738,9 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
         &gGbaBios[0x128 >> 2]
     };
     context_t runContext { };
+#ifdef GBAR3_EMBED_ROM
+    *(volatile u32*)0x023F0000 = 0xB2B2B2B2; // just before VM.Run
+#endif
     virtualMachine.Run(&runContext);
     while (true);
 }
