@@ -42,7 +42,9 @@ public:
         return f_lseek(&_file, CREATE_LINKMAP);
     }
 
-    File() { }
+    // Zero-init the FIL so ~File() -> f_close() on a never-opened File sees a
+    // NULL fs and returns FR_INVALID_OBJECT instead of touching garbage.
+    File() : _file{} { }
 
     ~File()
     {

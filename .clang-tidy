@@ -1,16 +1,31 @@
 # GBARunner4 static-analysis configuration.
 #
-# Scoped to the project's own core code (code/core). Third-party sources
-# (FatFS, tlsf, ArduinoJson) are excluded by lint.sh. Header findings are
-# filtered to code/core so libnds/libtwl noise is ignored.
+# Scoped to the project's own core code (code/core); lint.sh excludes
+# third-party sources (FatFS, tlsf, ArduinoJson). Header findings are filtered
+# to code/core so libnds/libtwl noise is ignored.
 #
-# The check set is deliberately high-signal and low-noise for a freestanding,
-# bare-metal ARM codebase: real bugs and undefined behaviour first (analyzers,
-# bugprone, performance), not style. Style is intentionally not enforced here.
+# The check set is deliberately high-signal for a freestanding, bare-metal ARM
+# codebase: real bugs and undefined behaviour first (analyzers, bugprone,
+# performance), not style. Style is intentionally not enforced.
+#
+# Suppressed on purpose (documented here, not inline, because the Checks value
+# is a folded scalar):
+#   * clang-analyzer-security.insecureAPI.*  - no *_s/strlcpy in a freestanding
+#     build; buffers are bounded by construction (memset/memcpy/strcpy).
+#   * clang-analyzer-optin.core.FixedAddressDereference - fixed-address MMIO is
+#     the intended model.
+#   * clang-analyzer-optin.performance.Padding - class padding is irrelevant.
+#   * bugprone-unhandled-code-paths - register/handler dispatch switches are
+#     intentionally exhaustive; a default label would be dead code.
+#   * performance-unnecessary-value-param - small trivially-copyable fixed-point
+#     types are passed by value on purpose.
 ---
 Checks: >
   -*,
   clang-analyzer-*,
+  -clang-analyzer-security.insecureAPI.*,
+  -clang-analyzer-optin.core.FixedAddressDereference,
+  -clang-analyzer-optin.performance.Padding,
   bugprone-*,
   -bugprone-easily-swappable-parameters,
   -bugprone-narrowing-conversions,
@@ -21,9 +36,11 @@ Checks: >
   -bugprone-switch-missing-default-case,
   -bugprone-signed-bitwise,
   -bugprone-multi-level-implicit-pointer-conversion,
+  -bugprone-unhandled-code-paths,
   performance-*,
   -performance-no-int-to-ptr,
   -performance-enum-size,
+  -performance-unnecessary-value-param,
   portability-*,
   -portability-avoid-pragma-once,
   -portability-no-assembler
@@ -35,7 +52,6 @@ UseColor: true
 FormatStyle: none
 
 CheckOptions:
-  - key: bugprone-suspicious-stringview-data-usage.internal-strings-only
-    value: 'false'
+  # The codebase uses '_'-prefixed members/globals by convention.
   - key: bugprone-reserved-identifier.AllowedIdentifiers
-    value: '_.*;__.*'
+    value: '_.*'

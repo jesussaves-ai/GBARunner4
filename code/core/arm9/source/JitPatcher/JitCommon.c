@@ -104,7 +104,9 @@ bool jit_isBlockJitted(void* ptr)
 
     const u8* const jitBits = jit_getJitBits(ptr);
     u32 bitIdx = ((u32)ptr & 0xF) >> 1;
-    return (*jitBits >> bitIdx) & 1;
+    // jit_getJitBits selects the region by an explicit address-range check, so
+    // this read is always inside the table; the analyzer cannot see that.
+    return (*jitBits >> bitIdx) & 1; // NOLINT(clang-analyzer-security.ArrayBound)
 }
 
 void jit_ensureBlockJitted(void* ptr)
@@ -116,7 +118,7 @@ void jit_ensureBlockJitted(void* ptr)
 
     const u8* const jitBits = jit_getJitBits(ptr);
     u32 bitIdx = ((u32)ptr & 0xF) >> 1;
-    if ((*jitBits >> bitIdx) & 1)
+    if ((*jitBits >> bitIdx) & 1) // NOLINT(clang-analyzer-security.ArrayBound)
         return;
     if ((u32)ptr & 1)
     {

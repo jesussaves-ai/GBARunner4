@@ -78,7 +78,11 @@ static __attribute__((noinline,optimize("Os"))) void writeGbAudioReg(u8 reg, u8 
     }
     else
     {
-        emu_ioRegisters[reg] = val & sRegisterMasks[reg - GBA_REG_OFFS_SOUND1CNT_L];
+        // sRegisterMasks covers the 0x60..0x9F sound register block; guard the
+        // index so an out-of-range offset can never read past the table.
+        u32 maskIndex = (u32)(u8)(reg - GBA_REG_OFFS_SOUND1CNT_L);
+        if (maskIndex < sizeof(sRegisterMasks))
+            emu_ioRegisters[reg] = val & sRegisterMasks[maskIndex];
     }
 }
 
