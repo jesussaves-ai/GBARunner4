@@ -636,6 +636,9 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     // display capture unit (DISPCAPCNT) every VBlank, which would clobber the
     // screenshot capture.
     gAppSettingsService.GetAppSettings().displaySettings.enableCenterAndMask = false;
+    // Test build: skip the GBA BIOS boot intro so the captured frame is the
+    // ROM's own output (the purple "GAME BOY" intro otherwise dominates early).
+    gAppSettingsService.GetAppSettings().runSettings.skipBiosIntro = true;
 #endif
     const auto& displaySettings = gAppSettingsService.GetAppSettings().displaySettings;
     gGbaDisplayConfigurationService.ApplyDisplaySettings(displaySettings);

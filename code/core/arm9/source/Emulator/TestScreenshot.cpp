@@ -19,7 +19,7 @@
 
 // Number of guest frames to run before capturing. The bundled GBA test ROMs
 // finish drawing well within this, and it leaves room for a boot splash.
-#define SCREENSHOT_FRAME_COUNT  600
+#define SCREENSHOT_FRAME_COUNT  300
 
 #define SCREEN_WIDTH    256
 #define SCREEN_HEIGHT   192
@@ -121,6 +121,8 @@ static void writeDiagnostics(u32 capcnt)
 {
     char* p = appendStr(sTxt, "GBARunner4 screenshot build\nframe=");
     p += mini_snprintf(p, 24, "%u", sFrame);
+    p = appendStr(p, "\nstate=");
+    p += mini_snprintf(p, 24, "%u", sState);
     p = appendStr(p, "\ndispcapcnt=");
     p += mini_snprintf(p, 24, "%08x", capcnt);
     p = appendStr(p, "\nvramC[0]=");
@@ -148,6 +150,11 @@ static void captureDone(void)
 extern "C" void test_vblankTick(void)
 {
     sFrame++;
+
+    // Heartbeat: keep the diagnostic file current so we can tell how far the
+    // tick gets even if the capture never fires (e.g. the guest is stuck).
+    if (sTxtReady && (sFrame % 30) == 1)
+        writeDiagnostics(REG_DISPCAPCNT);
 
     if (sState == 0)
     {
