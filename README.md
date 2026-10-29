@@ -406,6 +406,7 @@ Key folders are governed by [`AGENTS.md`](AGENTS.md).
 - **Toolchain:** [devkitPro](https://devkitpro.org/) (`devkitARM` / `libnds`).
 
 Source files and linker scripts carry **Mozilla Public License 2.0** headers; see those headers for the exact terms. This project is a community fork and is not affiliated with Nintendo or Gericom.
+
 ---
 
 ## Support
