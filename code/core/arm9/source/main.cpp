@@ -32,6 +32,7 @@
 #include "Patches/BadMixerPatch.h"
 #include "Application/Settings/AppSettingsService.h"
 #include "GbaHeader.h"
+#include "SavePath.h"
 #include "MemoryEmulator/MemoryLoadStore.h"
 #include "GbaColorCorrection/ColorLut.h"
 #include "MemoryProtectionConfiguration.h"
@@ -271,6 +272,7 @@ static void disableSramWrites(void)
 }
 
 static char sSaveTypeText[16] = "NONE";
+static char sSavePath[512];
 
 static void handleSave(const char* savePath)
 {
@@ -607,13 +609,10 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
 #ifdef GBAR3_SCREENSHOT
     test_stageMark(10);
 #endif
-    char* romExtension = strrchr(romPath, '.');
-    if (romExtension)
+    if (!sav_buildSavePath(romPath, sSavePath, sizeof(sSavePath)))
     {
-        romExtension[1] = 's';
-        romExtension[2] = 'a';
-        romExtension[3] = 'v';
-        romExtension[4] = '\0';
+        gLogger->Log(LogLevel::Error, "ROM path too long for save path\n");
+        sSavePath[0] = '\0';
     }
 #ifdef GBAR3_EMBED_ROM
     // Test build: no config files and no save scan (both need the filesystem).
@@ -624,7 +623,7 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     // save type immediately, so row 21 is never blank while the slow rom
     // signature scan in handleSave() runs.
     StartupStatusIndicator::ShowGameInfo(gRomHeader.gameCode, "SCANNING...");
-    handleSave(romPath);
+    handleSave(sSavePath);
     // The save type is resolved now; update row 21 to the final value.
     StartupStatusIndicator::ShowGameInfo(gRomHeader.gameCode, sSaveTypeText);
 #endif
