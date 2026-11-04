@@ -641,7 +641,14 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     // save type immediately, so row 21 is never blank while the slow rom
     // signature scan in handleSave() runs.
     StartupStatusIndicator::ShowGameInfo(gRomHeader.gameCode, "SCANNING...");
-    handleSave(sSavePath);
+    if (sSavePath[0] != '\0')
+    {
+        handleSave(sSavePath);
+    }
+    else
+    {
+        strcpy(sSaveTypeText, "SAVE ERR");
+    }
     // The save type is resolved now; update row 21 to the final value.
     StartupStatusIndicator::ShowGameInfo(gRomHeader.gameCode, sSaveTypeText);
 #endif

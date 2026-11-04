@@ -13,7 +13,7 @@
 [[gnu::section(".ewram.bss")]]
 alignas(32) static fs_ipc_cmd_t sIpcCommand;
 [[gnu::section(".ewram.bss")]]
-alignas(32) static u8 sTempBuffers[2][512];
+alignas(32) static u8 sTempBuffer[512];
 
 static FsWaitToken* volatile sCurrentWaitToken = nullptr;
 
@@ -141,26 +141,20 @@ extern "C" void fs_readCacheAlignedSectorsAsync(FsDevice device, void* buffer, u
 
 static bool readSectorsNotCacheAligned(FsDevice device, void* buffer, u32 sector, u32 count)
 {
-    sIpcCommand.cmd = device == FS_DEVICE_DLDI ? FS_IPC_CMD_DLDI_READ_SECTORS : FS_IPC_CMD_DSI_SD_READ_SECTORS;
-    sIpcCommand.count = 1;
-    sIpcCommand.result = 0;
-    // not cache aligned, use a temp buffer
-    dc_invalidateRange(sTempBuffers[0], 512);
+    u32 cmd = device == FS_DEVICE_DLDI ? FS_IPC_CMD_DLDI_READ_SECTORS : FS_IPC_CMD_DSI_SD_READ_SECTORS;
     bool ok = true;
     for (u32 i = 0; i < count; i++)
     {
-        sIpcCommand.buffer = sTempBuffers[i & 1];
-        sIpcCommand.sector = sector + i;
-        sendIpcCommand();
-        if (i != 0)
-            memcpy((u8*)buffer + 512 * (i - 1), sTempBuffers[(i - 1) & 1], 512);
-        if (i != count - 1)
-            dc_invalidateRange(sTempBuffers[(i + 1) & 1], 512);
-        while (!isArm7FsOperationComplete());
+        dc_invalidateRange(sTempBuffer, 512);
+        FsWaitToken waitToken;
+        executeIpcCommandAsync(cmd, sTempBuffer, sector + i, 1, &waitToken);
+        fs_waitForCompletion(&waitToken, false);
         if (readCommandResult() != 0)
+        {
             ok = false;
+        }
+        memcpy((u8*)buffer + 512 * i, sTempBuffer, 512);
     }
-    memcpy((u8*)buffer + 512 * (count - 1), sTempBuffers[(count - 1) & 1], 512);
     return ok;
 }
 
@@ -190,26 +184,19 @@ extern "C" void fs_writeCacheAlignedSectorsAsync(FsDevice device, const void* bu
 
 static bool writeSectorsNotCacheAligned(FsDevice device, const void* buffer, u32 sector, u32 count)
 {
-    sIpcCommand.cmd = device == FS_DEVICE_DLDI ? FS_IPC_CMD_DLDI_WRITE_SECTORS : FS_IPC_CMD_DSI_SD_WRITE_SECTORS;
-    sIpcCommand.count = 1;
-    sIpcCommand.result = 0;
-    // not cache aligned, use a temp buffer
-    memcpy(sTempBuffers[0], (u8*)buffer, 512);
-    dc_flushRange(sTempBuffers[0], 512);
+    u32 cmd = device == FS_DEVICE_DLDI ? FS_IPC_CMD_DLDI_WRITE_SECTORS : FS_IPC_CMD_DSI_SD_WRITE_SECTORS;
     bool ok = true;
     for (u32 i = 0; i < count; i++)
     {
-        sIpcCommand.buffer = sTempBuffers[i & 1];
-        sIpcCommand.sector = sector + i;
-        sendIpcCommand();
-        if (i != count - 1)
-        {
-            memcpy(sTempBuffers[(i + 1) & 1], (u8*)buffer + 512 * (i + 1), 512);
-            dc_flushRange(sTempBuffers[(i + 1) & 1], 512);
-        }
-        while (!isArm7FsOperationComplete());
+        memcpy(sTempBuffer, (const u8*)buffer + 512 * i, 512);
+        dc_flushRange(sTempBuffer, 512);
+        FsWaitToken waitToken;
+        executeIpcCommandAsync(cmd, sTempBuffer, sector + i, 1, &waitToken);
+        fs_waitForCompletion(&waitToken, false);
         if (readCommandResult() != 0)
+        {
             ok = false;
+        }
     }
     return ok;
 }

@@ -72,7 +72,7 @@ fi
 # only works when a previous full build already produced libtwl9/libtwl7.
 # The core object trees are removed explicitly: the test build compiles the
 # same sources with different -D flags and make does not track flag changes.
-docker run --rm -v "$ROOT":/gba devkitpro/devkitarm:20230928 bash -c \
+docker run --rm -v "$ROOT":/gba devkitpro/devkitarm:20241104 bash -c \
     "cd /gba/code && make -C libs/libtwl >/dev/null 2>&1 && \
      rm -rf core/arm9/build core/arm7/build && \
      cd bootstrap && make clean >/dev/null 2>&1 && make $DEFS 2>&1 | tail -3" || {

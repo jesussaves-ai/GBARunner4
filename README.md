@@ -183,16 +183,16 @@ Measured with `arm-none-eabi-size -A code/core/arm9/arm9.elf`:
 
 | Section | Size (bytes) | Region / Notes |
 | --- | ---: | --- |
-| `.text` | **61,480** | VRAM A — ARM9 code |
+| `.text` | **61,584** | VRAM A — ARM9 code |
 | `.itcm` | **31,896 / 32,768** | ITCM — **872 B headroom** |
 | `.dtcm` | **16,384 / 16,384** | DTCM — fully laid out |
-| `.rodata` | 4,336 | VRAM A |
+| `.rodata` | 4,328 | VRAM A |
 | `.data` | 36 | VRAM A |
 | `.ewram` | 3,608 | EWRAM |
 | `.ewram.bss` | **1,691,648** | EWRAM |
 | `.vramhi.bss` | 49,152 | VRAM HI |
 | `.dsiram.bss` | **9,961,472** | DSi extended RAM (8 MB cache + 1.5 MB JIT tables) |
-| `.bss` | 1,332 | VRAM A |
+| `.bss` | 3,124 | VRAM A |
 
 > The ITCM is intentionally kept **nearly full**. If a change overflows it, the link fails — move code out of `.itcm` or shrink it.
 

@@ -23,12 +23,15 @@
 alignas(32) u8 gSaveData[SAVE_DATA_SIZE];
 
 [[gnu::section(".ewram.bss")]]
+alignas(32) u8 gSaveFill[512];
+
+[[gnu::section(".ewram.bss")]]
 FIL gSaveFile alignas(32);
 
 [[gnu::section(".ewram.bss"), gnu::aligned(32)]]
 gba_save_shared_t gGbaSaveShared;
 
-static DWORD sClusterTable[64];
+static DWORD sClusterTable[512];
 static u32 sSkipSaveCheckInstruction;
 static u32 sSaveWriteFailures;
 static volatile bool sSaveIoError;
@@ -71,18 +74,20 @@ bool sav_tryPatchFunctions(const SavePatch* patches, u32 count)
     // same 30 MB of SD data once per signature.
     sdc_searchRomSignatures(signatures, count, addresses);
 
-    bool allFound = true;
     for (u32 i = 0; i < count; i++)
     {
         if (!addresses[i])
         {
-            allFound = false;
-            continue;
+            return false;
         }
+    }
+
+    for (u32 i = 0; i < count; i++)
+    {
         sav_swiTable[patches[i].swiNumber] = patches[i].function;
         sav_patchRomFunction(addresses[i], patches[i].swiNumber);
     }
-    return allFound;
+    return true;
 }
 
 bool sav_tryPatchFunction(const u32* signature, u32 saveSwiNumber, void* patchFunction)
@@ -113,17 +118,15 @@ static bool fillSaveFile(u32 start, u32 end)
     {
         return false;
     }
-    u8 fill[512];
-    memset(fill, SAVE_DATA_FILL, sizeof(fill));
     for (u32 pos = start; pos < end;)
     {
         u32 chunk = end - pos;
-        if (chunk > sizeof(fill))
+        if (chunk > sizeof(gSaveFill))
         {
-            chunk = sizeof(fill);
+            chunk = sizeof(gSaveFill);
         }
         UINT written = 0;
-        if (f_write(&gSaveFile, fill, chunk, &written) != FR_OK || written != chunk)
+        if (f_write(&gSaveFile, gSaveFill, chunk, &written) != FR_OK || written != chunk)
         {
             return false;
         }
@@ -148,6 +151,7 @@ __attribute__((optimize("Os"))) bool sav_initializeSave(const SaveTypeInfo* save
     bool isNitro = Environment::IsIsNitroEmulator();
     bool opened = false;
     sSaveIoError = false;
+    memset(gSaveFill, SAVE_DATA_FILL, sizeof(gSaveFill));
     memset(gSaveData, SAVE_DATA_FILL, SAVE_DATA_SIZE);
     if (isNitro)
     {
@@ -165,29 +169,40 @@ __attribute__((optimize("Os"))) bool sav_initializeSave(const SaveTypeInfo* save
         opened = growSaveFile(initialSize, saveSize);
         if (!opened)
         {
+            sSaveIoError = true;
             gLogger->Log(LogLevel::Error, "Growing save file failed\n");
         }
         loadSaveClusterMap();
 
         if (saveSize <= SAVE_DATA_SIZE)
         {
-            f_rewind(&gSaveFile);
             UINT read = 0;
-            if (f_read(&gSaveFile, gSaveData, saveSize, &read) != FR_OK || read != saveSize)
+            if (f_rewind(&gSaveFile) != FR_OK ||
+                f_read(&gSaveFile, gSaveData, saveSize, &read) != FR_OK ||
+                read != saveSize)
             {
+                // Do not let a partial read turn into a writable save that the
+                // game then flushes over the real file.
+                opened = false;
+                sSaveIoError = true;
                 gLogger->Log(LogLevel::Error, "Reading save file failed\n");
             }
         }
 
         if (isNitro)
         {
-            f_rewind(&gSaveFile);
             UINT read = 0;
-            f_read(&gSaveFile, (void*)ISNITRO_SAVE_BUFFER, saveSize, &read);
+            if (f_rewind(&gSaveFile) != FR_OK ||
+                f_read(&gSaveFile, (void*)ISNITRO_SAVE_BUFFER, saveSize, &read) != FR_OK ||
+                read != saveSize)
+            {
+                opened = false;
+            }
         }
     }
     else
     {
+        sSaveIoError = true;
         gLogger->Log(LogLevel::Error, "Opening save file failed\n");
     }
 
@@ -228,12 +243,19 @@ extern "C" u8 sav_readSaveByteFromFile(u32 saveAddress)
     else
     {
         // write to file
-        f_lseek(&gSaveFile, saveAddress);
-        UINT bytesRead = 0;
-        if (f_read(&gSaveFile, &saveByte, 1, &bytesRead) != FR_OK || bytesRead != 1)
+        if (f_lseek(&gSaveFile, saveAddress) != FR_OK)
         {
             saveByte = SAVE_DATA_FILL;
             sSaveIoError = true;
+        }
+        else
+        {
+            UINT bytesRead = 0;
+            if (f_read(&gSaveFile, &saveByte, 1, &bytesRead) != FR_OK || bytesRead != 1)
+            {
+                saveByte = SAVE_DATA_FILL;
+                sSaveIoError = true;
+            }
         }
     }
     vm_disableNestedIrqs();

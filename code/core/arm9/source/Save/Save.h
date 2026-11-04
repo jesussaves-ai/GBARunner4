@@ -9,6 +9,7 @@
 #define ISNITRO_SAVE_BUFFER_SIZE    (128 * 1024)
 
 extern u8 gSaveData[SAVE_DATA_SIZE];
+extern u8 gSaveFill[512];
 extern FIL gSaveFile;
 extern gba_save_shared_t gGbaSaveShared;
 

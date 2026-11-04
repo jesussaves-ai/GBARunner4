@@ -8,6 +8,7 @@
 #include "Cpsr.h"
 #include "MemFastSearch.h"
 #include "MemoryEmulator/RomDefs.h"
+#include "JitPatcher/JitCommon.h"
 #include "SdCache.h"
 
 typedef struct
@@ -282,6 +283,7 @@ void sdc_invalidateCacheBlockRange(u32 firstBlock, u32 blockCount)
             }
             sCacheBlockToRomBlock[i] = SDC_ROM_BLOCK_INVALID;
         }
+        jit_clearCacheBlock(i);
     }
     dc_drainWriteBuffer();
 }
@@ -436,6 +438,7 @@ static void* loadRomBlock(u32 romBlock, u32 cacheBlock)
         sdc_romBlockToCacheBlock[oldRomBlock] = NULL;
         sCacheBlockToRomBlock[cacheBlock] = SDC_ROM_BLOCK_INVALID;
     }
+    jit_clearCacheBlock(cacheBlock);
 
     bool decreaseTabuLevel = false;
     if ((arm_getCpsr() & 0x1F) != 0x12 && sTabuLevel < 2)
@@ -497,7 +500,14 @@ static void* loadRomBlock(u32 romBlock, u32 cacheBlock)
         irqs = fs_waitForCompletion(&waitToken, true);
         if (sCurrentFetch.romBlock == romBlock)
         {
+            bool readOk = (fs_getLastResult() == 0);
             finishFetch();
+            if (!readOk)
+            {
+                memset(&sdc_cache[cacheBlock][0], 0xFF, SDC_BLOCK_SIZE);
+                applyRomPatches(&sdc_cache[cacheBlock][0], romBlock);
+                dc_drainWriteBuffer();
+            }
         }
         arm_restoreIrqs(irqs);
     }

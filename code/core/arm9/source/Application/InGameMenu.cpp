@@ -2,6 +2,7 @@
 #include <libtwl/gfx/gfx.h>
 #include "StartupStatusIndicator.h"
 #include "SystemIpc.h"
+#include "Save/Save.h"
 #include "InGameMenu.h"
 
 // In-game pause menu, opened by L + R + Start (Select released). It is invoked
@@ -68,6 +69,8 @@ void drawMenu(u32 selected)
     StartupStatusIndicator::DrawTextRow(kTitleRow, "PAUSED", false);
     for (u32 i = 0; i < kItemCount; i++)
         StartupStatusIndicator::DrawTextRow(kFirstItemRow + i * kRowStep, kItems[i], i == selected);
+    if (sav_hasSaveIoError())
+        StartupStatusIndicator::DrawTextRow(7, "SAVE ERROR", true);
 }
 }
 

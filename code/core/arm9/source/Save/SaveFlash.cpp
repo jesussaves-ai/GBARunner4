@@ -91,16 +91,15 @@ static u16 eraseFlashChip()
     // ...) saw leftover data and failed the save check. sFlashType.saveSize is
     // set by initializeFlash512/initializeFlash1M before this SWI is reachable.
     sav_clearSaveIoError();
-    u8 fill[512];
-    memset(fill, 0xFF, sizeof(fill));
-    for (u32 i = 0; i < sFlashType.saveSize; i += sizeof(fill))
+    memset(gSaveFill, 0xFF, sizeof(gSaveFill));
+    for (u32 i = 0; i < sFlashType.saveSize; i += sizeof(gSaveFill))
     {
         u32 chunk = sFlashType.saveSize - i;
-        if (chunk > sizeof(fill))
+        if (chunk > sizeof(gSaveFill))
         {
-            chunk = sizeof(fill);
+            chunk = sizeof(gSaveFill);
         }
-        sav_writeSaveBytesToFileFromUserMode(i, fill, chunk);
+        sav_writeSaveBytesToFileFromUserMode(i, gSaveFill, chunk);
     }
     sav_flushSaveFileFromUserMode();
     return sav_hasSaveIoError() ? 1 : 0;
@@ -109,17 +108,16 @@ static u16 eraseFlashChip()
 static u16 eraseFlashSector(u16 secNo)
 {
     sav_clearSaveIoError();
-    u8 fill[512];
-    memset(fill, 0xFF, sizeof(fill));
+    memset(gSaveFill, 0xFF, sizeof(gSaveFill));
     u32 base = secNo << 12;
-    for (u32 i = 0; i < (1 << 12); i += sizeof(fill))
+    for (u32 i = 0; i < (1 << 12); i += sizeof(gSaveFill))
     {
         u32 chunk = (1 << 12) - i;
-        if (chunk > sizeof(fill))
+        if (chunk > sizeof(gSaveFill))
         {
-            chunk = sizeof(fill);
+            chunk = sizeof(gSaveFill);
         }
-        sav_writeSaveBytesToFileFromUserMode(base + i, fill, chunk);
+        sav_writeSaveBytesToFileFromUserMode(base + i, gSaveFill, chunk);
     }
     sav_flushSaveFileFromUserMode();
     return sav_hasSaveIoError() ? 1 : 0;

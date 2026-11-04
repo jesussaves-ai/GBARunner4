@@ -31,6 +31,18 @@ u16* jit_getDynamicJitAuxBits(const void* ptr)
     return (u16*)sTwlDynamicRomJitAuxBits + offset / 16;
 }
 
+void jit_clearCacheBlock(u32 cacheBlock)
+{
+    if (!gJitPatcherActive || cacheBlock >= sdc_blockCount)
+    {
+        return;
+    }
+
+    const void* ptr = &sdc_cache[cacheBlock][0];
+    memset(jit_getJitBits(ptr), 0, SDC_BLOCK_SIZE / 16);
+    memset(jit_getJitAuxBits(ptr), 0, (SDC_BLOCK_SIZE / 16) * sizeof(u16));
+}
+
 /// @brief Whether the JIT patcher is actively processing blocks. jit_disable()
 ///        sets every processed bit so jit_ensureBlockJitted() becomes a no-op;
 ///        jit_invalidateCodeRange() must not clear those bits in that state or

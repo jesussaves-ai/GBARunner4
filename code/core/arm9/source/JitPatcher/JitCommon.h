@@ -58,6 +58,10 @@ u32 jit_getJitBitsOffset(const void* ptr);
 u8* jit_getDynamicJitBits(const void* ptr);
 u16* jit_getDynamicJitAuxBits(const void* ptr);
 
+/// @brief Clears the processed and auxiliary bits of one SD cache block.
+///        Called when the block is reused for a different ROM block.
+void jit_clearCacheBlock(u32 cacheBlock);
+
 static inline bool jit_isTwlDynamicCache(const void* ptr)
 {
     return sdc_blockCount > SDC_BLOCK_COUNT &&
