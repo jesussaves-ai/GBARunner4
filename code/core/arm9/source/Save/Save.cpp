@@ -341,6 +341,7 @@ extern "C" void sav_writeSaveToFile(void)
     }
 
     sSaveWriteFailures = 0;
+    sSaveIoError = false;
     gGbaSaveShared.saveState = GBA_SAVE_STATE_CLEAN;
     emu_vblankIrqSkipSaveCheckInstruction = sSkipSaveCheckInstruction;
 }
