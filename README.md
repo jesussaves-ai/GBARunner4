@@ -183,7 +183,7 @@ Measured with `arm-none-eabi-size -A code/core/arm9/arm9.elf`:
 
 | Section | Size (bytes) | Region / Notes |
 | --- | ---: | --- |
-| `.text` | **61,584** | VRAM A — ARM9 code |
+| `.text` | **61,616** | VRAM A — ARM9 code |
 | `.itcm` | **31,896 / 32,768** | ITCM — **872 B headroom** |
 | `.dtcm` | **16,384 / 16,384** | DTCM — fully laid out |
 | `.rodata` | 4,328 | VRAM A |
