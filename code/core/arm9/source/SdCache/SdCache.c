@@ -56,6 +56,11 @@ static u32 sBlockCount;
 static u32 sTabuLevel;
 static u32 sTabuBlocks[2];
 
+/// @brief Whether the ROM file fits in the small FAT link map. When it does not,
+///        loadRomBlock() reads the block through FatFs directly instead of
+///        walking a truncated map.
+static bool sUseClusterMap;
+
 /// @brief Rom blocks whose cache buffer is currently in flight (or has just
 ///        been loaded) and must therefore not be picked as a replacement victim
 ///        while an enclosing rom load still reads it. The pin stack is bounded
@@ -339,8 +344,6 @@ __attribute__((noinline)) static void fillOutOfBoundsCacheBlock(u32 romBlock, u3
 /// @param dst The destination buffer.
 static void* loadRomBlock(u32 romBlock, u32 cacheBlock)
 {
-    u32 sector = getSdSectorOfRomBlock(romBlock);
-
     u32 irqs = fs_waitForCompletionOfCurrentTransaction(true);
     if (isCurrentlyFetching())
     {
@@ -392,6 +395,49 @@ static void* loadRomBlock(u32 romBlock, u32 cacheBlock)
         sCacheBlockToRomBlock[cacheBlock] = SDC_ROM_BLOCK_INVALID;
     }
 
+    bool decreaseTabuLevel = false;
+    if ((arm_getCpsr() & 0x1F) != 0x12 && sTabuLevel < 2)
+    {
+        sTabuBlocks[sTabuLevel++] = cacheBlock;
+        decreaseTabuLevel = true;
+    }
+
+    if (!sUseClusterMap)
+    {
+        // The ROM is too fragmented for the small link map. Read the block
+        // through FatFs directly; IRQs stay off so a nested load cannot pick
+        // this cache block while it is being filled.
+        u32 romOffset = romBlock * SDC_BLOCK_SIZE;
+        sCacheBlockToRomBlock[cacheBlock] = romBlock;
+        sdc_romBlockToCacheBlock[romBlock] = &sdc_cache[cacheBlock][0];
+        if (romOffset >= f_size(&gFile))
+        {
+            fillOutOfBoundsCacheBlock(romBlock, cacheBlock);
+        }
+        else
+        {
+            UINT br = 0;
+            FRESULT res = f_lseek(&gFile, romOffset);
+            if (res == FR_OK)
+            {
+                res = f_read(&gFile, &sdc_cache[cacheBlock][0], SDC_BLOCK_SIZE, &br);
+            }
+            if (res != FR_OK || br != SDC_BLOCK_SIZE)
+            {
+                memset(&sdc_cache[cacheBlock][0], 0xFF, SDC_BLOCK_SIZE);
+            }
+            applyRomPatches(&sdc_cache[cacheBlock][0], romBlock);
+            dc_drainWriteBuffer();
+        }
+        arm_restoreIrqs(irqs);
+        if (decreaseTabuLevel)
+        {
+            sTabuLevel--;
+        }
+        return &sdc_cache[cacheBlock][0];
+    }
+
+    u32 sector = getSdSectorOfRomBlock(romBlock);
     FsWaitToken waitToken;
     if (sector != 0)
     {
@@ -401,13 +447,6 @@ static void* loadRomBlock(u32 romBlock, u32 cacheBlock)
             SDC_BLOCK_SIZE / 512, &waitToken);
         sCurrentFetch.romBlock = romBlock;
         sCurrentFetch.cacheBlock = cacheBlock;
-    }
-
-    bool decreaseTabuLevel = false;
-    if ((arm_getCpsr() & 0x1F) != 0x12 && sTabuLevel < 2)
-    {
-        sTabuBlocks[sTabuLevel++] = cacheBlock;
-        decreaseTabuLevel = true;
     }
 
     arm_restoreIrqs(irqs);
@@ -542,8 +581,12 @@ void sdc_init(void)
     sClusterTable[0] = sizeof(sClusterTable) / sizeof(DWORD);
     gFile.cltbl = sClusterTable;
     u32 result = f_lseek(&gFile, CREATE_LINKMAP);
-    if (result != FR_OK)
+    sUseClusterMap = (result == FR_OK);
+    if (!sUseClusterMap)
     {
+        // Never walk a truncated map. loadRomBlock() uses a direct FatFs read
+        // for every block in this case.
+        gFile.cltbl = NULL;
         logAddress(0xDEADBEEF);
         logAddress(result);
     }
