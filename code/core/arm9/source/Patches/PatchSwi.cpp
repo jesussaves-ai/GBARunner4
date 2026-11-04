@@ -12,6 +12,11 @@ void patch_resetSwiPatches()
 
 int patch_addSwiPatch(void* function)
 {
+    if (sNextFreePatchNumber >= (int)(sizeof(patch_swiTable) / sizeof(patch_swiTable[0])))
+    {
+        gLogger->Log(LogLevel::Error, "Too many SWI patches\n");
+        return -1;
+    }
     int number = sNextFreePatchNumber++;
     patch_swiTable[number] = function;
     return number;

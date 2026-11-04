@@ -10,8 +10,20 @@
 // so it does not need to live in the scarce ITCM.
 static u32 sPatchCodeBuffer[16 * 3];
 
+#ifdef GBAR3_HICODE_CACHE_MAPPING
+static constexpr u32 kPatchWords = 4;
+#else
+static constexpr u32 kPatchWords = 3;
+#endif
+
 void SelfModifyingPatches::PatchSelfModifyingWrite(u32 gbaAddress)
 {
+    if (_patchCodeOffset + kPatchWords > sizeof(sPatchCodeBuffer) / sizeof(sPatchCodeBuffer[0]))
+    {
+        gLogger->Log(LogLevel::Error, "Too many self-modifying patches\n");
+        return;
+    }
+
     u32* instructionPtr = (u32*)sdc_loadRomBlockForPatching(gbaAddress);
     u32 instruction = *instructionPtr;
     if ((instruction & 0x0F3F0000) == 0x050F0000)
@@ -23,6 +35,11 @@ void SelfModifyingPatches::PatchSelfModifyingWrite(u32 gbaAddress)
     {
         if (!ModifyStrh(instruction))
             return;
+    }
+    else
+    {
+        gLogger->Log(LogLevel::Error, "Self-modifying patch address is not a str/strh\n");
+        return;
     }
 
     u32 condition = instruction & (0xF << 28);
@@ -44,7 +61,10 @@ void SelfModifyingPatches::PatchSelfModifyingWrite(u32 gbaAddress)
     patchCode[2] = 0xE1B0F00E; // movs pc, lr
 #endif
 
-    u32 patchInstruction = ARM_PATCH_SWI(patch_addSwiPatch(patchCode));
+    int patchNumber = patch_addSwiPatch(patchCode);
+    if (patchNumber < 0)
+        return;
+    u32 patchInstruction = ARM_PATCH_SWI(patchNumber);
     patchInstruction &= ~(0xF << 28);
     patchInstruction |= condition;
     sdc_patchRom(gbaAddress, patchInstruction, 4);

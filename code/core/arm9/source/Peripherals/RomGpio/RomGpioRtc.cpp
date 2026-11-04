@@ -417,11 +417,6 @@ void RomGpioRtc::SetHour(u8 value)
         {
             value = 0;
         }
-
-        if (FromBcd(value) >= 12)
-        {
-            value |= 0x80; // PM flag
-        }
     }
     else
     {
@@ -497,7 +492,7 @@ u32 RomGpioRtc::ToSecondsSinceJanuary2000(const rio_rtc_datetime_t& dateTime, bo
         days += GetNumberOfDaysInMonth(2000 + yearsSince2000, i);
     }
 
-    u32 hours = FromBcd(dateTime.time.hour & 0x1F);
+    u32 hours = FromBcd(dateTime.time.hour & 0x3F);
     if (!time24h && (dateTime.time.hour & 0x80))
     {
         hours += 12;
@@ -516,7 +511,7 @@ void RomGpioRtc::FromSecondsSinceJanuary2000(u32 secondsSinceJanuary2000, rio_rt
     u32 hoursSinceJanuary2000 = minutesSinceJanuary2000 / 60;
 
     u32 hours = hoursSinceJanuary2000 % 24;
-    u32 amPmFlag = hours >= 12 ? 0x80 : 0;
+    u32 amPmFlag = (!time24h && hours >= 12) ? 0x80 : 0;
     if (!time24h && hours >= 12)
     {
         hours -= 12;
