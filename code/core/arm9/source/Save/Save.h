@@ -46,7 +46,7 @@ const SaveTypeInfo* sav_resolveGameIdSaveTypeInfo(
 /// @param out Destination buffer of at least 16 bytes.
 void sav_getSaveTypeDescription(const SaveTypeInfo* saveTypeInfo, char* out);
 
-void sav_initializeSave(const SaveTypeInfo* saveTypeInfo, const char* savePath);
+bool sav_initializeSave(const SaveTypeInfo* saveTypeInfo, const char* savePath);
 
 #ifdef __cplusplus
 extern "C" {

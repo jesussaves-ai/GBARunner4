@@ -34,6 +34,10 @@
 #define KEY_GAME_SETTINGS                           "gameSettings"
 #define KEY_GAME_SETTINGS_SAVE_TYPE                 "saveType"
 
+// The JSON document itself is only 2 KB. A larger file is a mistake or a
+// corrupted file, not a setting; cap it before touching the small heap.
+#define JSON_MAX_FILE_SIZE                          (16 * 1024)
+
 #define ENUM_STRING_GBA_SCREEN_TOP                  "top"
 #define ENUM_STRING_GBA_SCREEN_BOTTOM               "bottom"
 
@@ -265,16 +269,25 @@ bool JsonAppSettingsSerializer::TryDeserialize(const TCHAR* filePath, AppSetting
     if (_settingsFile.Open(filePath, FA_READ | FA_OPEN_EXISTING) != FR_OK)
         return false;
 
-    u32 fileSize = _settingsFile.GetSize();
-    if (fileSize == 0)
+    FSIZE_t rawFileSize = _settingsFile.GetSize();
+    if (rawFileSize == 0 || rawFileSize > JSON_MAX_FILE_SIZE)
+    {
+        _settingsFile.Close();
         return false;
+    }
+    u32 fileSize = (u32)rawFileSize;
 
     std::unique_ptr<u8[]> fileData(new(cache_align) u8[fileSize]);
+    if (!fileData)
+    {
+        _settingsFile.Close();
+        return false;
+    }
 
     u32 bytesRead = 0;
-    if (_settingsFile.Read(fileData.get(), fileSize, bytesRead) != FR_OK ||
-        bytesRead != fileSize ||
-        _settingsFile.Close() != FR_OK)
+    FRESULT readResult = _settingsFile.Read(fileData.get(), fileSize, bytesRead);
+    FRESULT closeResult = _settingsFile.Close();
+    if (readResult != FR_OK || bytesRead != fileSize || closeResult != FR_OK)
     {
         return false;
     }

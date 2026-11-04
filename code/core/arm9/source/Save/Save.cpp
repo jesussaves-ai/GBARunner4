@@ -30,6 +30,7 @@ gba_save_shared_t gGbaSaveShared;
 
 static DWORD sClusterTable[64];
 static u32 sSkipSaveCheckInstruction;
+static u32 sSaveWriteFailures;
 
 // temporarily
 extern FIL gFile;
@@ -57,39 +58,54 @@ bool sav_tryPatchFunction(const u32* signature, u32 saveSwiNumber, void* patchFu
 }
 
 [[gnu::noinline]]
-static void loadSaveClusterMap(void)
+static bool loadSaveClusterMap(void)
 {
     sClusterTable[0] = sizeof(sClusterTable) / sizeof(DWORD);
     gSaveFile.cltbl = sClusterTable;
-    f_lseek(&gSaveFile, CREATE_LINKMAP);
+    if (f_lseek(&gSaveFile, CREATE_LINKMAP) != FR_OK)
+    {
+        // The map is too small for this file; use the normal FAT chain instead
+        // of walking a truncated table.
+        gSaveFile.cltbl = nullptr;
+        return false;
+    }
+    return true;
 }
 
 [[gnu::noinline, gnu::optimize("Os")]]
-static void fillSaveFile(u32 start, u32 end)
+static bool fillSaveFile(u32 start, u32 end)
 {
     const u8 saveFill = SAVE_DATA_FILL;
-    f_lseek(&gSaveFile, start);
+    if (f_lseek(&gSaveFile, start) != FR_OK)
+    {
+        return false;
+    }
     for (u32 i = start; i < end; ++i)
     {
         UINT written = 0;
-        f_write(&gSaveFile, &saveFill, 1, &written);
+        if (f_write(&gSaveFile, &saveFill, 1, &written) != FR_OK || written != 1)
+        {
+            return false;
+        }
     }
-    f_sync(&gSaveFile);
+    return f_sync(&gSaveFile) == FR_OK;
 }
 
 [[gnu::noinline]]
-static void growSaveFile(u32 start, u32 end)
+static bool growSaveFile(u32 start, u32 end)
 {
-    if (f_lseek(&gSaveFile, end) == FR_OK)
+    if (f_lseek(&gSaveFile, end) != FR_OK)
     {
-        fillSaveFile(start, end);
+        return false;
     }
+    return fillSaveFile(start, end);
 }
 
-__attribute__((optimize("Os"))) void sav_initializeSave(const SaveTypeInfo* saveTypeInfo, const char* savePath)
+__attribute__((optimize("Os"))) bool sav_initializeSave(const SaveTypeInfo* saveTypeInfo, const char* savePath)
 {
     u32 saveSize = saveTypeInfo ? saveTypeInfo->size : DEFAULT_SAVE_SIZE;
     bool isNitro = Environment::IsIsNitroEmulator();
+    bool opened = false;
     memset(gSaveData, SAVE_DATA_FILL, SAVE_DATA_SIZE);
     if (isNitro)
     {
@@ -104,14 +120,21 @@ __attribute__((optimize("Os"))) void sav_initializeSave(const SaveTypeInfo* save
     {
         // A newly created file has size 0; an already larger file makes the fill range empty.
         u32 initialSize = f_size(&gSaveFile);
-        growSaveFile(initialSize, saveSize);
+        opened = growSaveFile(initialSize, saveSize);
+        if (!opened)
+        {
+            gLogger->Log(LogLevel::Error, "Growing save file failed\n");
+        }
         loadSaveClusterMap();
 
         if (saveSize <= SAVE_DATA_SIZE)
         {
             f_rewind(&gSaveFile);
             UINT read = 0;
-            f_read(&gSaveFile, gSaveData, saveSize, &read);
+            if (f_read(&gSaveFile, gSaveData, saveSize, &read) != FR_OK || read != saveSize)
+            {
+                gLogger->Log(LogLevel::Error, "Reading save file failed\n");
+            }
         }
 
         if (isNitro)
@@ -121,13 +144,17 @@ __attribute__((optimize("Os"))) void sav_initializeSave(const SaveTypeInfo* save
             f_read(&gSaveFile, (void*)ISNITRO_SAVE_BUFFER, saveSize, &read);
         }
     }
+    else
+    {
+        gLogger->Log(LogLevel::Error, "Opening save file failed\n");
+    }
 
     gGbaSaveShared.saveState = GBA_SAVE_STATE_CLEAN;
     sSkipSaveCheckInstruction = emu_vblankIrqSkipSaveCheckInstruction;
     if (!saveTypeInfo || (saveTypeInfo->type & SAVE_TYPE_MASK) == SAVE_TYPE_SRAM)
     {
         gGbaSaveShared.saveData = gSaveData;
-        gGbaSaveShared.saveDataSize = saveSize;
+        gGbaSaveShared.saveDataSize = opened ? saveSize : 0;
     }
     else
     {
@@ -141,6 +168,7 @@ __attribute__((optimize("Os"))) void sav_initializeSave(const SaveTypeInfo* save
         IPC_CHANNEL_GBA_SAVE);
     while (ipc_isRecvFifoEmpty());
     ipc_recvWordDirect();
+    return opened;
 }
 
 extern "C" u8 sav_readSaveByteFromFile(u32 saveAddress)
@@ -201,12 +229,38 @@ extern "C" void sav_writeSaveToFile(void)
 {
     if (gGbaSaveShared.saveDataSize != 0 && !Environment::IsIsNitroEmulator())
     {
-        f_lseek(&gSaveFile, 0);
         UINT bytesWritten = 0;
-        f_write(&gSaveFile, gSaveData, gGbaSaveShared.saveDataSize, &bytesWritten);
-        f_sync(&gSaveFile);
+        FRESULT res = f_lseek(&gSaveFile, 0);
+        if (res == FR_OK)
+        {
+            res = f_write(&gSaveFile, gSaveData, gGbaSaveShared.saveDataSize, &bytesWritten);
+        }
+        if (res == FR_OK && bytesWritten != gGbaSaveShared.saveDataSize)
+        {
+            res = FR_DISK_ERR;
+        }
+        if (res == FR_OK)
+        {
+            res = f_sync(&gSaveFile);
+        }
+        if (res != FR_OK)
+        {
+            gLogger->Log(LogLevel::Error, "Save write failed\n");
+            // Retry a few times; after that stop hammering a dead card and let
+            // the game continue (the failure is logged, not hidden).
+            if (++sSaveWriteFailures >= 3)
+            {
+                sSaveWriteFailures = 0;
+                gGbaSaveShared.saveState = GBA_SAVE_STATE_CLEAN;
+                emu_vblankIrqSkipSaveCheckInstruction = sSkipSaveCheckInstruction;
+                return;
+            }
+            gGbaSaveShared.saveState = GBA_SAVE_STATE_DIRTY;
+            return;
+        }
     }
 
+    sSaveWriteFailures = 0;
     gGbaSaveShared.saveState = GBA_SAVE_STATE_CLEAN;
     emu_vblankIrqSkipSaveCheckInstruction = sSkipSaveCheckInstruction;
 }

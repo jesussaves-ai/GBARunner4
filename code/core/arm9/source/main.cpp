@@ -139,6 +139,18 @@ static bool mountAgbSemihosting()
     return true;
 }
 
+#ifndef GBAR3_EMBED_ROM
+[[noreturn]] static void haltWithError(const char* message)
+{
+    gLogger->Log(LogLevel::Error, "%s\n", message);
+    StartupStatusIndicator::ShowGameInfo(0, message);
+    while (true)
+    {
+        arm_waitForInterrupt();
+    }
+}
+#endif
+
 static void loadGbaBios()
 {
 #ifdef GBAR3_EMBED_ROM
@@ -146,9 +158,15 @@ static void loadGbaBios()
     return;
 #else
     memset(&gFile, 0, sizeof(gFile));
-    f_open(&gFile, BIOS_FILE_PATH, FA_OPEN_EXISTING | FA_READ);
-    UINT br;
-    f_read(&gFile, gGbaBios, 16 * 1024, &br);
+    if (f_open(&gFile, BIOS_FILE_PATH, FA_OPEN_EXISTING | FA_READ) != FR_OK)
+    {
+        haltWithError("NO BIOS");
+    }
+    UINT br = 0;
+    if (f_read(&gFile, gGbaBios, 16 * 1024, &br) != FR_OK || br != 16 * 1024)
+    {
+        haltWithError("BAD BIOS");
+    }
     f_close(&gFile);
 #endif
 }
@@ -226,13 +244,25 @@ static void loadGbaRom(const char* romPath)
         memset((void*)(ROM_LINEAR_DS_ADDRESS + copySize), 0xFF, ROM_LINEAR_SIZE - copySize);
     return;
 #else
-    UINT br;
+    UINT br = 0;
     memset(&gFile, 0, sizeof(gFile));
-    f_open(&gFile, romPath, FA_OPEN_EXISTING | FA_READ);
+    if (f_open(&gFile, romPath, FA_OPEN_EXISTING | FA_READ) != FR_OK)
+    {
+        haltWithError("NO ROM");
+    }
     sdc_init();
-    f_read(&gFile, &gRomHeader, sizeof(GbaHeader), &br);
-    f_lseek(&gFile, ROM_LINEAR_GBA_ADDRESS - 0x08000000);
-    f_read(&gFile, (void*)ROM_LINEAR_DS_ADDRESS, ROM_LINEAR_SIZE, &br);
+    if (f_rewind(&gFile) != FR_OK ||
+        f_read(&gFile, &gRomHeader, sizeof(GbaHeader), &br) != FR_OK ||
+        br != sizeof(GbaHeader))
+    {
+        haltWithError("BAD ROM");
+    }
+    if (f_lseek(&gFile, 0) != FR_OK ||
+        f_read(&gFile, (void*)ROM_LINEAR_DS_ADDRESS, ROM_LINEAR_SIZE, &br) != FR_OK ||
+        br <= sizeof(GbaHeader))
+    {
+        haltWithError("BAD ROM");
+    }
     // Rom images are powers of two, so the loaded size is block aligned. If the
     // rom is smaller than the 2 MB linear window, mark the unused tail as
     // unprogrammed (0xFF) so the DMA fast path, which now reads the linear
@@ -326,7 +356,10 @@ static void handleSave(const char* savePath)
         }
     }
 
-    sav_initializeSave(saveTypeInfo, savePath);
+    if (!sav_initializeSave(saveTypeInfo, savePath))
+    {
+        strcpy(sSaveTypeText, "SAVE ERR");
+    }
 }
 
 extern "C" void logAddress(u32 address)

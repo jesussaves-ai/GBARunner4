@@ -16,7 +16,7 @@ void FsIpcService::Start()
 
 void FsIpcService::HandleMessage(u32 data)
 {
-    auto cmd = reinterpret_cast<const fs_ipc_cmd_t*>(data << 2);
+    auto cmd = reinterpret_cast<fs_ipc_cmd_t*>(data << 2);
     switch (cmd->cmd)
     {
         case FS_IPC_CMD_DLDI_SETUP:
@@ -54,26 +54,26 @@ void FsIpcService::SetupDldi(const fs_ipc_cmd_t* cmd) const
     SendResponseMessage(result);
 }
 
-void FsIpcService::DldiReadSectors(const fs_ipc_cmd_t* cmd) const
+void FsIpcService::DldiReadSectors(fs_ipc_cmd_t* cmd) const
 {
-    _DLDI_readSectors_ptr(cmd->sector, cmd->count, cmd->buffer);
+    cmd->result = _DLDI_readSectors_ptr(cmd->sector, cmd->count, cmd->buffer) ? 0 : 1;
     ipc_setArm7SyncBits(ipc_getArm9SyncBits());
 }
 
-void FsIpcService::DldiWriteSectors(const fs_ipc_cmd_t* cmd) const
+void FsIpcService::DldiWriteSectors(fs_ipc_cmd_t* cmd) const
 {
-    _DLDI_writeSectors_ptr(cmd->sector, cmd->count, cmd->buffer);
+    cmd->result = _DLDI_writeSectors_ptr(cmd->sector, cmd->count, cmd->buffer) ? 0 : 1;
     ipc_setArm7SyncBits(ipc_getArm9SyncBits());
 }
 
-void FsIpcService::DsiSdReadSectors(const fs_ipc_cmd_t* cmd) const
+void FsIpcService::DsiSdReadSectors(fs_ipc_cmd_t* cmd) const
 {
-    SDMMC_readSectors(SDMMC_DEV_CARD, cmd->sector, cmd->buffer, cmd->count);
+    cmd->result = SDMMC_readSectors(SDMMC_DEV_CARD, cmd->sector, cmd->buffer, cmd->count);
     ipc_setArm7SyncBits(ipc_getArm9SyncBits());
 }
 
-void FsIpcService::DsiSdWriteSectors(const fs_ipc_cmd_t* cmd) const
+void FsIpcService::DsiSdWriteSectors(fs_ipc_cmd_t* cmd) const
 {
-    SDMMC_writeSectors(SDMMC_DEV_CARD, cmd->sector, cmd->buffer, cmd->count);
+    cmd->result = SDMMC_writeSectors(SDMMC_DEV_CARD, cmd->sector, cmd->buffer, cmd->count);
     ipc_setArm7SyncBits(ipc_getArm9SyncBits());
 }

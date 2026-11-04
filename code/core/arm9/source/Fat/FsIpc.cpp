@@ -17,6 +17,18 @@ alignas(32) static u8 sTempBuffers[2][512];
 
 static FsWaitToken* volatile sCurrentWaitToken = nullptr;
 
+static u32 readCommandResult()
+{
+    // The ARM7 wrote the result after the ARM9 cached the command struct.
+    dc_invalidateRange(&sIpcCommand, sizeof(sIpcCommand));
+    return sIpcCommand.result;
+}
+
+extern "C" u32 fs_getLastResult(void)
+{
+    return readCommandResult();
+}
+
 static bool isArm7FsOperationComplete()
 {
     u32 ipcSync = REG_IPCSYNC;
@@ -112,6 +124,7 @@ static void executeIpcCommandAsync(u32 cmd, void* buffer, u32 sector, u32 count,
         sIpcCommand.buffer = buffer;
         sIpcCommand.sector = sector;
         sIpcCommand.count = count;
+        sIpcCommand.result = 0;
         sendIpcCommand();
         sCurrentWaitToken = waitToken;
     }
@@ -126,12 +139,14 @@ extern "C" void fs_readCacheAlignedSectorsAsync(FsDevice device, void* buffer, u
         buffer, sector, count, waitToken);
 }
 
-static void readSectorsNotCacheAligned(FsDevice device, void* buffer, u32 sector, u32 count)
+static bool readSectorsNotCacheAligned(FsDevice device, void* buffer, u32 sector, u32 count)
 {
     sIpcCommand.cmd = device == FS_DEVICE_DLDI ? FS_IPC_CMD_DLDI_READ_SECTORS : FS_IPC_CMD_DSI_SD_READ_SECTORS;
     sIpcCommand.count = 1;
+    sIpcCommand.result = 0;
     // not cache aligned, use a temp buffer
     dc_invalidateRange(sTempBuffers[0], 512);
+    bool ok = true;
     for (u32 i = 0; i < count; i++)
     {
         sIpcCommand.buffer = sTempBuffers[i & 1];
@@ -142,25 +157,27 @@ static void readSectorsNotCacheAligned(FsDevice device, void* buffer, u32 sector
         if (i != count - 1)
             dc_invalidateRange(sTempBuffers[(i + 1) & 1], 512);
         while (!isArm7FsOperationComplete());
+        if (readCommandResult() != 0)
+            ok = false;
     }
     memcpy((u8*)buffer + 512 * (count - 1), sTempBuffers[(count - 1) & 1], 512);
+    return ok;
 }
 
-extern "C" void fs_readSectors(FsDevice device, void* buffer, u32 sector, u32 count)
+extern "C" bool fs_readSectors(FsDevice device, void* buffer, u32 sector, u32 count)
 {
     if (count == 0)
-        return;
+        return true;
 
     if (((u32)buffer >> 24) != 2 || ((u32)buffer & 0x1F))
     {
-        readSectorsNotCacheAligned(device, buffer, sector, count);
+        return readSectorsNotCacheAligned(device, buffer, sector, count);
     }
-    else
-    {
-        FsWaitToken waitToken;
-        fs_readCacheAlignedSectorsAsync(device, buffer, sector, count, &waitToken);
-        fs_waitForCompletion(&waitToken, false);
-    }
+
+    FsWaitToken waitToken;
+    fs_readCacheAlignedSectorsAsync(device, buffer, sector, count, &waitToken);
+    fs_waitForCompletion(&waitToken, false);
+    return readCommandResult() == 0;
 }
 
 extern "C" void fs_writeCacheAlignedSectorsAsync(FsDevice device, const void* buffer, u32 sector, u32 count, FsWaitToken* waitToken)
@@ -171,13 +188,15 @@ extern "C" void fs_writeCacheAlignedSectorsAsync(FsDevice device, const void* bu
         (void*)buffer, sector, count, waitToken);
 }
 
-static void writeSectorsNotCacheAligned(FsDevice device, const void* buffer, u32 sector, u32 count)
+static bool writeSectorsNotCacheAligned(FsDevice device, const void* buffer, u32 sector, u32 count)
 {
     sIpcCommand.cmd = device == FS_DEVICE_DLDI ? FS_IPC_CMD_DLDI_WRITE_SECTORS : FS_IPC_CMD_DSI_SD_WRITE_SECTORS;
     sIpcCommand.count = 1;
+    sIpcCommand.result = 0;
     // not cache aligned, use a temp buffer
     memcpy(sTempBuffers[0], (u8*)buffer, 512);
     dc_flushRange(sTempBuffers[0], 512);
+    bool ok = true;
     for (u32 i = 0; i < count; i++)
     {
         sIpcCommand.buffer = sTempBuffers[i & 1];
@@ -189,22 +208,23 @@ static void writeSectorsNotCacheAligned(FsDevice device, const void* buffer, u32
             dc_flushRange(sTempBuffers[(i + 1) & 1], 512);
         }
         while (!isArm7FsOperationComplete());
+        if (readCommandResult() != 0)
+            ok = false;
     }
-    memcpy((u8*)buffer + 512 * (count - 1), sTempBuffers[(count - 1) & 1], 512);
+    return ok;
 }
 
-extern "C" void fs_writeSectors(FsDevice device, const void* buffer, u32 sector, u32 count)
+extern "C" bool fs_writeSectors(FsDevice device, const void* buffer, u32 sector, u32 count)
 {
     if (count == 0)
-        return;
+        return true;
     if (((u32)buffer >> 24) != 2 || ((u32)buffer & 0x1F))
     {
-        writeSectorsNotCacheAligned(device, buffer, sector, count);
+        return writeSectorsNotCacheAligned(device, buffer, sector, count);
     }
-    else
-    {
-        FsWaitToken waitToken;
-        fs_writeCacheAlignedSectorsAsync(device, buffer, sector, count, &waitToken);
-        fs_waitForCompletion(&waitToken, false);
-    }
+
+    FsWaitToken waitToken;
+    fs_writeCacheAlignedSectorsAsync(device, buffer, sector, count, &waitToken);
+    fs_waitForCompletion(&waitToken, false);
+    return readCommandResult() == 0;
 }

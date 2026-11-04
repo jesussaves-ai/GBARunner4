@@ -15,4 +15,5 @@ typedef struct alignas(32)
     void* buffer;
     u32 sector;
     u32 count;
+    u32 result; // 0 = success, non-zero = device error
 } fs_ipc_cmd_t;
