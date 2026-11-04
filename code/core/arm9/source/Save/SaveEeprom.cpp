@@ -43,26 +43,32 @@ static u16 programEepromDword(u16 epAdr, const u16* src)
     return 0;
 }
 
+static bool patchEeprom(const u32* readSignature, const u32* programSignature)
+{
+    SavePatch patches[] =
+    {
+        { readSignature, 0, (void*)readEepromDword },
+        { programSignature, 1, (void*)programEepromDword },
+    };
+    return sav_tryPatchFunctions(patches, 2);
+}
+
 bool eeprom_patchV111(const SaveTypeInfo* saveTypeInfo, FIL* romFile, u32 tagRomAddress, u8* tempBuffer)
 {
-    return sav_tryPatchFunction(sReadEepromDwordV111Sig, 0, (void*)readEepromDword)
-        && sav_tryPatchFunction(sProgramEepromDwordV111Sig, 1, (void*)programEepromDword);
+    return patchEeprom(sReadEepromDwordV111Sig, sProgramEepromDwordV111Sig);
 }
 
 bool eeprom_patchV120(const SaveTypeInfo* saveTypeInfo, FIL* romFile, u32 tagRomAddress, u8* tempBuffer)
 {
-    return sav_tryPatchFunction(sReadEepromDwordV120Sig, 0, (void*)readEepromDword)
-        && sav_tryPatchFunction(sProgramEepromDwordV120Sig, 1, (void*)programEepromDword);
+    return patchEeprom(sReadEepromDwordV120Sig, sProgramEepromDwordV120Sig);
 }
 
 bool eeprom_patchV124(const SaveTypeInfo* saveTypeInfo, FIL* romFile, u32 tagRomAddress, u8* tempBuffer)
 {
-    return sav_tryPatchFunction(sReadEepromDwordV120Sig, 0, (void*)readEepromDword)
-        && sav_tryPatchFunction(sProgramEepromDwordV124Sig, 1, (void*)programEepromDword);
+    return patchEeprom(sReadEepromDwordV120Sig, sProgramEepromDwordV124Sig);
 }
 
 bool eeprom_patchV126(const SaveTypeInfo* saveTypeInfo, FIL* romFile, u32 tagRomAddress, u8* tempBuffer)
 {
-    return sav_tryPatchFunction(sReadEepromDwordV120Sig, 0, (void*)readEepromDword)
-        && sav_tryPatchFunction(sProgramEepromDwordV126Sig, 1, (void*)programEepromDword);
+    return patchEeprom(sReadEepromDwordV120Sig, sProgramEepromDwordV126Sig);
 }

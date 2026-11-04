@@ -225,7 +225,11 @@ bool flash_patchV120(const SaveTypeInfo* saveTypeInfo, FIL* romFile, u32 tagRomA
 
     // Search the whole rom (not just the linearly mapped 2 MB) so titles whose
     // flash code lives in the paged high rom still get patched.
-    if (!sav_tryPatchFunction(sIdentifyFlashV120Sig, 0, (void*)identifyFlash512))
+    SavePatch patches[] =
+    {
+        { sIdentifyFlashV120Sig, 0, (void*)identifyFlash512 },
+    };
+    if (!sav_tryPatchFunctions(patches, 1))
     {
         return false;
     }
@@ -254,7 +258,11 @@ bool flash_patchV123(const SaveTypeInfo* saveTypeInfo, FIL* romFile, u32 tagRomA
 
     // Search the whole rom (not just the linearly mapped 2 MB) so titles whose
     // flash code lives in the paged high rom still get patched.
-    if (!sav_tryPatchFunction(sIdentifyFlashV123Sig, 0, (void*)identifyFlash512))
+    SavePatch patches[] =
+    {
+        { sIdentifyFlashV123Sig, 0, (void*)identifyFlash512 },
+    };
+    if (!sav_tryPatchFunctions(patches, 1))
     {
         return false;
     }
@@ -281,7 +289,12 @@ bool flash_patchV126(const SaveTypeInfo* saveTypeInfo, FIL* romFile, u32 tagRomA
     u32 readRomAddress = *(u32*)(tempBuffer + FLASH_V120_OFFSET_READ);
     u32 verifySectorRomAddress = *(u32*)(tempBuffer + FLASH_V120_OFFSET_VERIFY_SECTOR);
 
-    if (!sav_tryPatchFunction(sIdentifyFlashV123Sig, 0, (void*)identifyFlash512))
+    SavePatch patches[] =
+    {
+        { sIdentifyFlashV123Sig, 0, (void*)identifyFlash512 },
+        { sVerifyFlashV126Sig, 3, (void*)verifyFlash },
+    };
+    if (!sav_tryPatchFunctions(patches, 2))
     {
         return false;
     }
@@ -292,12 +305,8 @@ bool flash_patchV126(const SaveTypeInfo* saveTypeInfo, FIL* romFile, u32 tagRomA
     sav_swiTable[2] = (void*)verifyFlashSector;
     sav_patchRomFunction(verifySectorRomAddress, 2);
 
-    if (sav_tryPatchFunction(sVerifyFlashV126Sig, 3, (void*)verifyFlash))
-    {
-        initializeFlash512();
-        return true;
-    }
-    return false;
+    initializeFlash512();
+    return true;
 }
 
 bool flash_patch512V130(const SaveTypeInfo* saveTypeInfo, FIL* romFile, u32 tagRomAddress, u8* tempBuffer)
@@ -320,10 +329,14 @@ bool flash_patch512V130(const SaveTypeInfo* saveTypeInfo, FIL* romFile, u32 tagR
     sPatchInfo.flMaxTimePtr = *(u32**)(tempBuffer + FLASH_512V130_OFFSET_FL_MAXTIME);
     sPatchInfo.flashPtr = *(u32**)(tempBuffer + FLASH_512V130_OFFSET_FLASH);
 
-    if (sav_tryPatchFunction(sIdentifyFlashV123Sig, 0, (void*)identifyFlash512) &&
-        sav_tryPatchFunction(sReadFlash512V130Sig, 1, (void*)readFlash) &&
-        sav_tryPatchFunction(sVerifyFlashSector512V130Sig, 2, (void*)verifyFlashSector) &&
-        sav_tryPatchFunction(sVerifyFlash512V130Sig, 3, (void*)verifyFlash))
+    SavePatch patches[] =
+    {
+        { sIdentifyFlashV123Sig, 0, (void*)identifyFlash512 },
+        { sReadFlash512V130Sig, 1, (void*)readFlash },
+        { sVerifyFlashSector512V130Sig, 2, (void*)verifyFlashSector },
+        { sVerifyFlash512V130Sig, 3, (void*)verifyFlash },
+    };
+    if (sav_tryPatchFunctions(patches, 4))
     {
         initializeFlash512();
         return true;
@@ -356,10 +369,14 @@ bool flash_patch1MV102(const SaveTypeInfo* saveTypeInfo, FIL* romFile, u32 tagRo
     const u32* identifySignature = saveTypeInfo->type == SAVE_TYPE_FLASH1M_V102
         ? sIdentifyFlashV123Sig : sIdentifyFlash1MV103Sig;
 
-    if (sav_tryPatchFunction(identifySignature, 0, (void*)identifyFlash1M) &&
-        sav_tryPatchFunction(sReadFlash512V130Sig, 1, (void*)readFlash) &&
-        sav_tryPatchFunction(sVerifyFlashSector512V130Sig, 2, (void*)verifyFlashSector) &&
-        sav_tryPatchFunction(sVerifyFlash512V130Sig, 3, (void*)verifyFlash))
+    SavePatch patches[] =
+    {
+        { identifySignature, 0, (void*)identifyFlash1M },
+        { sReadFlash512V130Sig, 1, (void*)readFlash },
+        { sVerifyFlashSector512V130Sig, 2, (void*)verifyFlashSector },
+        { sVerifyFlash512V130Sig, 3, (void*)verifyFlash },
+    };
+    if (sav_tryPatchFunctions(patches, 4))
     {
         initializeFlash1M();
         return true;
@@ -387,10 +404,14 @@ bool flash_patch1MV103(const SaveTypeInfo* saveTypeInfo, FIL* romFile, u32 tagRo
     sPatchInfo.flMaxTimePtr = *(u32**)(tempBuffer + FLASH_1MV103_OFFSET_FL_MAXTIME);
     sPatchInfo.flashPtr = *(u32**)(tempBuffer + FLASH_1MV103_OFFSET_FLASH);
 
-    if (sav_tryPatchFunction(sIdentifyFlash1MV103Sig, 0, (void*)identifyFlash1M) &&
-        sav_tryPatchFunction(sReadFlash512V130Sig, 1, (void*)readFlash) &&
-        sav_tryPatchFunction(sVerifyFlashSector512V130Sig, 2, (void*)verifyFlashSector) &&
-        sav_tryPatchFunction(sVerifyFlash512V130Sig, 3, (void*)verifyFlash))
+    SavePatch patches[] =
+    {
+        { sIdentifyFlash1MV103Sig, 0, (void*)identifyFlash1M },
+        { sReadFlash512V130Sig, 1, (void*)readFlash },
+        { sVerifyFlashSector512V130Sig, 2, (void*)verifyFlashSector },
+        { sVerifyFlash512V130Sig, 3, (void*)verifyFlash },
+    };
+    if (sav_tryPatchFunctions(patches, 4))
     {
         initializeFlash1M();
         return true;

@@ -14,7 +14,15 @@ extern gba_save_shared_t gGbaSaveShared;
 
 extern u32 emu_vblankIrqSkipSaveCheckInstruction;
 
+struct SavePatch
+{
+    const u32* signature;
+    u32 swiNumber;
+    void* function;
+};
+
 bool sav_tryPatchFunction(const u32* signature, u32 saveSwiNumber, void* patchFunction);
+bool sav_tryPatchFunctions(const SavePatch* patches, u32 count);
 
 /// @brief Writes a Thumb SWI to the ROM function located at the given GBA
 ///        address. Handles both functions in the linearly mapped 2 MB window

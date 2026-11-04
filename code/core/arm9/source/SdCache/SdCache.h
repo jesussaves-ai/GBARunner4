@@ -58,6 +58,12 @@ void sdc_patchRom(u32 gbaAddress, u32 value, u32 size);
 /// @return The GBA address of the first match, or 0 when not found.
 u32 sdc_searchRomSignature(const u32* signature);
 
+/// @brief Searches the whole rom once for several 16 byte signatures.
+/// @param signatures Array of `count` signatures.
+/// @param count Number of signatures (at most 8).
+/// @param results Array of `count` GBA addresses; 0 means not found.
+void sdc_searchRomSignatures(const u32* const* signatures, u32 count, u32* results);
+
 /// @brief Drops the rom block mapping of a range of sd cache blocks. This is
 ///        required after a scratch writer (for example the 64 KB save tag
 ///        scanner, which uses sdc_cache directly) has overwritten cache blocks

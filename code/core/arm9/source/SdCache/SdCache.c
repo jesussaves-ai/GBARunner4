@@ -170,14 +170,34 @@ void sdc_patchRom(u32 gbaAddress, u32 value, u32 size)
     }
 }
 
-u32 sdc_searchRomSignature(const u32* signature)
+void sdc_searchRomSignatures(const u32* const* signatures, u32 count, u32* results)
 {
+    if (count > 8)
+    {
+        count = 8;
+    }
+    for (u32 i = 0; i < count; i++)
+    {
+        results[i] = 0;
+    }
+
     u32 romSize = f_size(&gFile);
     u32 linearSize = romSize < ROM_LINEAR_SIZE ? romSize : ROM_LINEAR_SIZE;
-    const u32* function = mem_fastSearch16((const u32*)ROM_LINEAR_DS_ADDRESS, linearSize, signature);
-    if (function)
+    u32 remaining = count;
+    for (u32 i = 0; i < count; i++)
     {
-        return (u32)function - ROM_LINEAR_DS_ADDRESS + ROM_LINEAR_GBA_ADDRESS;
+        const u32* function = mem_fastSearch16(
+            (const u32*)ROM_LINEAR_DS_ADDRESS, linearSize, signatures[i]);
+        if (function)
+        {
+            results[i] = (u32)function - ROM_LINEAR_DS_ADDRESS + ROM_LINEAR_GBA_ADDRESS;
+            remaining--;
+        }
+    }
+
+    if (remaining == 0 || romSize <= ROM_LINEAR_SIZE)
+    {
+        return;
     }
 
     // A 16 byte signature that starts in the last 12 bytes of a 4 KB rom block
@@ -190,34 +210,56 @@ u32 sdc_searchRomSignature(const u32* signature)
     for (u32 i = ROM_LINEAR_END_GBA_ADDRESS; i < ROM_LINEAR_GBA_ADDRESS + romSize; i += SDC_BLOCK_SIZE)
     {
         const u32* block = (const u32*)sdc_getRomBlock(i);
-        const u32* match = mem_fastSearch16(block, SDC_BLOCK_SIZE, signature);
-        if (match)
+        for (u32 s = 0; s < count; s++)
         {
-            return i + (u32)match - (u32)block;
-        }
-
-        if (hasPrev)
-        {
-            for (u32 j = 1; j <= 3; ++j)
+            if (results[s])
             {
-                const u32 copyFromPrev = 16 - j * 4;
-                u32 combined[4];
-                memcpy(combined, (const u8*)prevTail + j * 4, copyFromPrev);
-                memcpy((u8*)combined + copyFromPrev, block, j * 4);
-                if (combined[0] == signature[0] && combined[1] == signature[1] &&
-                    combined[2] == signature[2] && combined[3] == signature[3])
+                continue;
+            }
+
+            const u32* match = mem_fastSearch16(block, SDC_BLOCK_SIZE, signatures[s]);
+            if (match)
+            {
+                results[s] = i + (u32)match - (u32)block;
+                remaining--;
+                continue;
+            }
+
+            if (hasPrev)
+            {
+                for (u32 j = 1; j <= 3; ++j)
                 {
-                    return prevTailStart + j * 4;
+                    const u32 copyFromPrev = 16 - j * 4;
+                    u32 combined[4];
+                    memcpy(combined, (const u8*)prevTail + j * 4, copyFromPrev);
+                    memcpy((u8*)combined + copyFromPrev, block, j * 4);
+                    if (combined[0] == signatures[s][0] && combined[1] == signatures[s][1] &&
+                        combined[2] == signatures[s][2] && combined[3] == signatures[s][3])
+                    {
+                        results[s] = prevTailStart + j * 4;
+                        remaining--;
+                        break;
+                    }
                 }
             }
+        }
+
+        if (remaining == 0)
+        {
+            return;
         }
 
         memcpy(prevTail, (const u8*)block + (SDC_BLOCK_SIZE - 16), 16);
         prevTailStart = i + SDC_BLOCK_SIZE - 16;
         hasPrev = true;
     }
+}
 
-    return 0;
+u32 sdc_searchRomSignature(const u32* signature)
+{
+    u32 result;
+    sdc_searchRomSignatures(&signature, 1, &result);
+    return result;
 }
 
 void sdc_invalidateCacheBlockRange(u32 firstBlock, u32 blockCount)

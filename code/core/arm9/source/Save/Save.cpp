@@ -41,20 +41,43 @@ void sav_patchRomFunction(u32 gbaAddress, u32 swiNumber)
     sdc_patchRom(gbaAddress, SAVE_THUMB_SWI(swiNumber), 2);
 }
 
-bool sav_tryPatchFunction(const u32* signature, u32 saveSwiNumber, void* patchFunction)
+bool sav_tryPatchFunctions(const SavePatch* patches, u32 count)
 {
-    // Search the whole rom (linear window + paged high rom) so EEPROM, SRAM and
-    // flash functions above the 2 MB ROM_LINEAR_SIZE window are patched in place
-    // instead of being mistaken for the linearly mapped copy.
-    u32 gbaAddress = sdc_searchRomSignature(signature);
-    if (!gbaAddress)
+    if (count > 8)
     {
-        return false;
+        count = 8;
     }
 
-    sav_swiTable[saveSwiNumber] = patchFunction;
-    sav_patchRomFunction(gbaAddress, saveSwiNumber);
-    return true;
+    const u32* signatures[8];
+    u32 addresses[8];
+    for (u32 i = 0; i < count; i++)
+    {
+        signatures[i] = patches[i].signature;
+    }
+
+    // Search the whole rom (linear window + paged high rom) once for all
+    // signatures of this save type. This keeps high-ROM games from reading the
+    // same 30 MB of SD data once per signature.
+    sdc_searchRomSignatures(signatures, count, addresses);
+
+    bool allFound = true;
+    for (u32 i = 0; i < count; i++)
+    {
+        if (!addresses[i])
+        {
+            allFound = false;
+            continue;
+        }
+        sav_swiTable[patches[i].swiNumber] = patches[i].function;
+        sav_patchRomFunction(addresses[i], patches[i].swiNumber);
+    }
+    return allFound;
+}
+
+bool sav_tryPatchFunction(const u32* signature, u32 saveSwiNumber, void* patchFunction)
+{
+    SavePatch patch { signature, saveSwiNumber, patchFunction };
+    return sav_tryPatchFunctions(&patch, 1);
 }
 
 [[gnu::noinline]]
