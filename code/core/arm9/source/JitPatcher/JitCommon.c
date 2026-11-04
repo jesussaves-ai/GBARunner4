@@ -11,6 +11,26 @@
 [[gnu::section(".ewram.bss")]]
 jit_state_t gJitState;
 
+/// @brief JIT bit tables for the 8 MB DSi/TWL cache pool. The normal
+///        gJitState tables cover only the 960 KB NTR pool; these cover the
+///        whole TWL pool and are touched only when that pool is active.
+[[gnu::section(".dsiram.bss")]]
+static u32 sTwlDynamicRomJitBits[SDC_TWL_SIZE / 2 / 32];
+[[gnu::section(".dsiram.bss")]]
+static u32 sTwlDynamicRomJitAuxBits[SDC_TWL_SIZE / 32];
+
+u8* jit_getDynamicJitBits(const void* ptr)
+{
+    u32 offset = (u32)ptr - (u32)sdc_cache;
+    return (u8*)sTwlDynamicRomJitBits + offset / 16;
+}
+
+u16* jit_getDynamicJitAuxBits(const void* ptr)
+{
+    u32 offset = (u32)ptr - (u32)sdc_cache;
+    return (u16*)sTwlDynamicRomJitAuxBits + offset / 16;
+}
+
 /// @brief Whether the JIT patcher is actively processing blocks. jit_disable()
 ///        sets every processed bit so jit_ensureBlockJitted() becomes a no-op;
 ///        jit_invalidateCodeRange() must not clear those bits in that state or
@@ -65,7 +85,7 @@ u32 jit_getJitBitsOffset(const void* ptr)
 
 void* jit_findBlockStart(const void* ptr)
 {
-    if ((u32)ptr >= (u32)sdc_cache && (u32)ptr < (u32)sdc_cache[SDC_BLOCK_COUNT])
+    if ((u32)ptr >= (u32)sdc_cache && (u32)ptr < (u32)sdc_cache[sdc_blockCount])
     {
         // sd cache
         return (void*)((u32)ptr & ~SDC_BLOCK_MASK);
@@ -81,7 +101,7 @@ void* jit_findBlockStart(const void* ptr)
 
 void* jit_findBlockEnd(const void* ptr)
 {
-    if ((u32)ptr >= (u32)sdc_cache && (u32)ptr < (u32)sdc_cache[SDC_BLOCK_COUNT])
+    if ((u32)ptr >= (u32)sdc_cache && (u32)ptr < (u32)sdc_cache[sdc_blockCount])
     {
         // sd cache
         return (void*)(((u32)ptr & ~SDC_BLOCK_MASK) + SDC_BLOCK_SIZE);
@@ -256,6 +276,11 @@ void jit_init(void)
 {
     memset(&gJitState, 0, sizeof(gJitState));
     gJitState.dummyJitBits = ~0u;
+    if (sdc_blockCount > SDC_BLOCK_COUNT)
+    {
+        memset(sTwlDynamicRomJitBits, 0, sizeof(sTwlDynamicRomJitBits));
+        memset(sTwlDynamicRomJitAuxBits, 0, sizeof(sTwlDynamicRomJitAuxBits));
+    }
     gJitPatcherActive = true;
 }
 
@@ -267,6 +292,11 @@ void jit_disable(void)
     memset(gJitState.iWramJitBits, 0xFF, sizeof(gJitState.iWramJitBits));
     memset(gJitState.eWramJitBits, 0xFF, sizeof(gJitState.eWramJitBits));
     memset(gJitState.vramJitBits, 0xFF, sizeof(gJitState.vramJitBits));
+    if (sdc_blockCount > SDC_BLOCK_COUNT)
+    {
+        memset(sTwlDynamicRomJitBits, 0xFF, sizeof(sTwlDynamicRomJitBits));
+        memset(sTwlDynamicRomJitAuxBits, 0xFF, sizeof(sTwlDynamicRomJitAuxBits));
+    }
 
     for (u32 i = 0; i < VM_JUMP_TO_IRQ_HANDLER_COMMON_INSTRUCTION_COUNT; i++)
     {

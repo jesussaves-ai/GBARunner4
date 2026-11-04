@@ -1,4 +1,5 @@
 #pragma once
+#include "SdCache/SdCache.h"
 
 typedef struct
 {
@@ -52,11 +53,27 @@ extern "C" {
 [[gnu::pure]]
 u32 jit_getJitBitsOffset(const void* ptr);
 
+/// @brief JIT bit tables for the DSi/TWL 8 MB SD cache pool. They live in the
+///        extended-memory region and are only touched when that pool is active.
+u8* jit_getDynamicJitBits(const void* ptr);
+u16* jit_getDynamicJitAuxBits(const void* ptr);
+
+static inline bool jit_isTwlDynamicCache(const void* ptr)
+{
+    return sdc_blockCount > SDC_BLOCK_COUNT &&
+        (u32)ptr >= (u32)sdc_cache &&
+        (u32)ptr < (u32)sdc_cache[sdc_blockCount];
+}
+
 /// @brief Gets a pointer to the word containing the JIT bits for the given address.
 /// @param ptr The address.
 /// @return A pointer to the word containing the JIT bits for the given address.
 static inline u8* jit_getJitBits(const void* ptr)
 {
+    if (jit_isTwlDynamicCache(ptr))
+    {
+        return jit_getDynamicJitBits(ptr);
+    }
     u32 offset = jit_getJitBitsOffset(ptr);
     return (u8*)gJitState.staticRomJitBits + offset;
 }
@@ -66,6 +83,10 @@ static inline u8* jit_getJitBits(const void* ptr)
 /// @return A pointer to the word containing the JIT auxillary bits for the given address.
 static inline u16* jit_getJitAuxBits(const void* ptr)
 {
+    if (jit_isTwlDynamicCache(ptr))
+    {
+        return jit_getDynamicJitAuxBits(ptr);
+    }
     u32 offset = jit_getJitBitsOffset(ptr);
     return (u16*)gJitState.staticRomJitAuxBits + offset;
 }
