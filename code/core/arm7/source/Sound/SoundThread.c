@@ -39,7 +39,21 @@ static void soundThreadMain(void* arg)
     while (true)
     {
         u16 playbackSampleCount = tmr_getCounter(SOUND_TIMER_SAMPLE_COUNTER);
-        int difference = (u16)(playbackSampleCount - (u16)(sSamplePosition / 4));
+        int difference = (int)(s16)(playbackSampleCount - (u16)(sSamplePosition / 4));
+        // shortcut: after a long ARM7 stall, drop the excess instead of
+        // generating it into a 128-sample ring. Increase the ring if longer
+        // catch-up is needed.
+        const int maxTicks = SOUND_BUFFER_SIZE / 2 / 4;
+        if (difference < 0)
+        {
+            sSamplePosition = (u32)playbackSampleCount * 4;
+            difference = 0;
+        }
+        else if (difference > maxTicks)
+        {
+            sSamplePosition = (u32)playbackSampleCount * 4 - (SOUND_BUFFER_SIZE / 2);
+            difference = maxTicks;
+        }
         difference *= 4;
         while (difference-- > 0)
         {
