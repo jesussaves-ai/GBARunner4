@@ -31,6 +31,17 @@ gba_save_shared_t gGbaSaveShared;
 static DWORD sClusterTable[64];
 static u32 sSkipSaveCheckInstruction;
 static u32 sSaveWriteFailures;
+static volatile bool sSaveIoError;
+
+extern "C" bool sav_hasSaveIoError(void)
+{
+    return sSaveIoError;
+}
+
+extern "C" void sav_clearSaveIoError(void)
+{
+    sSaveIoError = false;
+}
 
 // temporarily
 extern FIL gFile;
@@ -98,18 +109,25 @@ static bool loadSaveClusterMap(void)
 [[gnu::noinline, gnu::optimize("Os")]]
 static bool fillSaveFile(u32 start, u32 end)
 {
-    const u8 saveFill = SAVE_DATA_FILL;
     if (f_lseek(&gSaveFile, start) != FR_OK)
     {
         return false;
     }
-    for (u32 i = start; i < end; ++i)
+    u8 fill[512];
+    memset(fill, SAVE_DATA_FILL, sizeof(fill));
+    for (u32 pos = start; pos < end;)
     {
+        u32 chunk = end - pos;
+        if (chunk > sizeof(fill))
+        {
+            chunk = sizeof(fill);
+        }
         UINT written = 0;
-        if (f_write(&gSaveFile, &saveFill, 1, &written) != FR_OK || written != 1)
+        if (f_write(&gSaveFile, fill, chunk, &written) != FR_OK || written != chunk)
         {
             return false;
         }
+        pos += chunk;
     }
     return f_sync(&gSaveFile) == FR_OK;
 }
@@ -129,6 +147,7 @@ __attribute__((optimize("Os"))) bool sav_initializeSave(const SaveTypeInfo* save
     u32 saveSize = saveTypeInfo ? saveTypeInfo->size : DEFAULT_SAVE_SIZE;
     bool isNitro = Environment::IsIsNitroEmulator();
     bool opened = false;
+    sSaveIoError = false;
     memset(gSaveData, SAVE_DATA_FILL, SAVE_DATA_SIZE);
     if (isNitro)
     {
@@ -214,36 +233,51 @@ extern "C" u8 sav_readSaveByteFromFile(u32 saveAddress)
         if (f_read(&gSaveFile, &saveByte, 1, &bytesRead) != FR_OK || bytesRead != 1)
         {
             saveByte = SAVE_DATA_FILL;
+            sSaveIoError = true;
         }
     }
     vm_disableNestedIrqs();
     return saveByte;
 }
 
-extern "C" void sav_writeSaveByteToFile(u32 saveAddress, u8 data)
+extern "C" void sav_writeSaveBytesToFile(u32 saveAddress, const u8* data, u32 size)
 {
     vm_enableNestedIrqs();
     if (Environment::IsIsNitroEmulator())
     {
         // save buffer in extended memory
-        ISNITRO_SAVE_BUFFER[saveAddress] = data;
+        memcpy((void*)(ISNITRO_SAVE_BUFFER + saveAddress), data, size);
     }
     else
     {
         // write to file
-        f_lseek(&gSaveFile, saveAddress);
-        UINT bytesWritten = 0;
-        f_write(&gSaveFile, &data, 1, &bytesWritten);
+        if (f_lseek(&gSaveFile, saveAddress) != FR_OK)
+        {
+            sSaveIoError = true;
+        }
+        else
+        {
+            UINT bytesWritten = 0;
+            if (f_write(&gSaveFile, data, size, &bytesWritten) != FR_OK || bytesWritten != size)
+            {
+                sSaveIoError = true;
+            }
+        }
     }
     vm_disableNestedIrqs();
+}
+
+extern "C" void sav_writeSaveByteToFile(u32 saveAddress, u8 data)
+{
+    sav_writeSaveBytesToFile(saveAddress, &data, 1);
 }
 
 extern "C" void sav_flushSaveFile(void)
 {
     vm_enableNestedIrqs();
-    if (!Environment::IsIsNitroEmulator())
+    if (!Environment::IsIsNitroEmulator() && f_sync(&gSaveFile) != FR_OK)
     {
-        f_sync(&gSaveFile);
+        sSaveIoError = true;
     }
     vm_disableNestedIrqs();
 }
@@ -268,6 +302,7 @@ extern "C" void sav_writeSaveToFile(void)
         }
         if (res != FR_OK)
         {
+            sSaveIoError = true;
             gLogger->Log(LogLevel::Error, "Save write failed\n");
             // Retry a few times; after that stop hammering a dead card and let
             // the game continue (the failure is logged, not hidden).

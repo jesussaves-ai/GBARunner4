@@ -30,6 +30,7 @@ extern void sav_writeSaveByte(u32 saveAddress, u8 value);
 
 extern u8 sav_readSaveByteFromFileFromUserMode(u32 saveAddress);
 extern void sav_writeSaveByteToFileFromUserMode(u32 saveAddress, u8 data);
+extern void sav_writeSaveBytesToFileFromUserMode(u32 saveAddress, const u8* data, u32 size);
 extern void sav_flushSaveFileFromUserMode(void);
 
 #ifdef __cplusplus

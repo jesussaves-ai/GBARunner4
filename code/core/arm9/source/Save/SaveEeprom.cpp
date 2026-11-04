@@ -26,21 +26,23 @@ static const u32 sProgramEepromDwordV126Sig[] = { 0x4647B5F0u, 0xB0ACB480u, 0x04
 
 static u16 readEepromDword(u16 epAdr, u16* dst)
 {
+    sav_clearSaveIoError();
     for (int i = 0; i < 8; ++i)
     {
         ((u8*)dst)[7 - i] = sav_readSaveByteFromFileFromUserMode((epAdr << 3) + i);
     }
-    return 0;
+    return sav_hasSaveIoError() ? 1 : 0;
 }
 
 static u16 programEepromDword(u16 epAdr, const u16* src)
 {
+    sav_clearSaveIoError();
     for (int i = 0; i < 8; ++i)
     {
         sav_writeSaveByteToFileFromUserMode((epAdr << 3) + i, ((u8*)src)[7 - i]);
     }
     sav_flushSaveFileFromUserMode();
-    return 0;
+    return sav_hasSaveIoError() ? 1 : 0;
 }
 
 static bool patchEeprom(const u32* readSignature, const u32* programSignature)

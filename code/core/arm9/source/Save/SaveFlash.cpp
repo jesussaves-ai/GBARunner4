@@ -90,39 +90,55 @@ static u16 eraseFlashChip()
     // that chip-erases and then verifies the device (Pokemon R/S/E, Golden Sun,
     // ...) saw leftover data and failed the save check. sFlashType.saveSize is
     // set by initializeFlash512/initializeFlash1M before this SWI is reachable.
-    for (u32 i = 0; i < sFlashType.saveSize; ++i)
+    sav_clearSaveIoError();
+    u8 fill[512];
+    memset(fill, 0xFF, sizeof(fill));
+    for (u32 i = 0; i < sFlashType.saveSize; i += sizeof(fill))
     {
-        sav_writeSaveByteToFileFromUserMode(i, 0xFF);
+        u32 chunk = sFlashType.saveSize - i;
+        if (chunk > sizeof(fill))
+        {
+            chunk = sizeof(fill);
+        }
+        sav_writeSaveBytesToFileFromUserMode(i, fill, chunk);
     }
     sav_flushSaveFileFromUserMode();
-    return 0;
+    return sav_hasSaveIoError() ? 1 : 0;
 }
 
 static u16 eraseFlashSector(u16 secNo)
 {
-    for (u32 i = 0; i < (1 << 12); ++i)
+    sav_clearSaveIoError();
+    u8 fill[512];
+    memset(fill, 0xFF, sizeof(fill));
+    u32 base = secNo << 12;
+    for (u32 i = 0; i < (1 << 12); i += sizeof(fill))
     {
-        sav_writeSaveByteToFileFromUserMode((secNo << 12) + i, 0xFF);
+        u32 chunk = (1 << 12) - i;
+        if (chunk > sizeof(fill))
+        {
+            chunk = sizeof(fill);
+        }
+        sav_writeSaveBytesToFileFromUserMode(base + i, fill, chunk);
     }
     sav_flushSaveFileFromUserMode();
-    return 0;
+    return sav_hasSaveIoError() ? 1 : 0;
 }
 
 static u16 programFlashSector(u16 secNo, const u8* src)
 {
-    for (u32 i = 0; i < (1 << 12); ++i)
-    {
-        sav_writeSaveByteToFileFromUserMode((secNo << 12) + i, *src++);
-    }
+    sav_clearSaveIoError();
+    sav_writeSaveBytesToFileFromUserMode(secNo << 12, src, 1 << 12);
     sav_flushSaveFileFromUserMode();
-    return 0;
+    return sav_hasSaveIoError() ? 1 : 0;
 }
 
 static u16 programFlashByte1M(u16 secNo, u32 offset, u8 data)
 {
+    sav_clearSaveIoError();
     sav_writeSaveByteToFileFromUserMode((secNo << 12) + offset, data);
     sav_flushSaveFileFromUserMode();
-    return 0;
+    return sav_hasSaveIoError() ? 1 : 0;
 }
 
 static u16 identifyFlash512()

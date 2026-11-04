@@ -24,6 +24,12 @@ jobs:
       - name: Make application
         run: |
           make -C code
+      - name: Build unit tests
+        run: |
+          make -C code debug
+      - name: Run host tests
+        run: |
+          ./tools/host-tests.sh
       - name: Prepare for build publishing
         run: |
           mkdir -p out/_gba/

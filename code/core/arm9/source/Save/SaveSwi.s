@@ -14,6 +14,8 @@ arm_func sav_swiHandler
         beq sav_swiWriteSaveByteToFile
     cmp r13, #0x94
         beq sav_swiFlushSaveFile
+    cmp r13, #0x95
+        beq sav_swiWriteSaveBytesToFile
     adr r12, (sav_swiTable - (0x80 * 4))
     ldr r12, [r12, r13, lsl #2]
     msr cpsr_c, #0x9F
@@ -59,6 +61,12 @@ arm_func sav_swiFlushSaveFile
     push {lr}
     adr lr, returnFromSwi
     b sav_flushSaveFile
+
+arm_func sav_swiWriteSaveBytesToFile
+    msr cpsr_c, #0x9F
+    push {lr}
+    adr lr, returnFromSwi
+    b sav_writeSaveBytesToFile
 
 returnFromSwi:
     pop {lr}
@@ -112,6 +120,10 @@ thumb_func sav_readSaveByteFromFileFromUserMode
 
 thumb_func sav_writeSaveByteToFileFromUserMode
     swi 0x93
+    bx lr
+
+thumb_func sav_writeSaveBytesToFileFromUserMode
+    swi 0x95
     bx lr
 
 thumb_func sav_flushSaveFileFromUserMode

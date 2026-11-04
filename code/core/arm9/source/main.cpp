@@ -127,18 +127,6 @@ static bool mountDsiSd()
     return true;
 }
 
-static bool mountAgbSemihosting()
-{
-    FRESULT res = f_mount(&gFatFs, "pc:", 1);
-    if (res != FR_OK)
-    {
-        gLogger->Log(LogLevel::Error, "Mounting agb semihosting failed\n");
-        return false;
-    }
-    f_chdrive("pc:");
-    return true;
-}
-
 #ifndef GBAR3_EMBED_ROM
 [[noreturn]] static void haltWithError(const char* message)
 {
@@ -623,9 +611,6 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     // the VBlank path only seeks/writes/syncs them.
     test_screenshotInit();
 #endif
-
-    // if (Environment::SupportsAgbSemihosting())
-        // mountAgbSemihosting();
 
     test_reportStage(7);
     gAppSettingsService.TryLoadAppSettings(SETTINGS_FILE_PATH);

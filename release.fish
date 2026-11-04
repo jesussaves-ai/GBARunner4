@@ -23,8 +23,8 @@ set -l rom code/bootstrap/GBARunner3.nds
 set -l zip GBARunner4.zip
 
 echo "--- Building GBARunner4 ---"
-docker run --rm -v (pwd):/gba devkitpro/devkitarm:20230928 bash -c "
-    cd /gba/code && make -C bootstrap
+docker run --rm -v (pwd):/gba devkitpro/devkitarm:20241104 bash -c "
+    cd /gba/code && make -C libs/libtwl >/dev/null 2>&1 && make -C bootstrap clean >/dev/null 2>&1 && make -C bootstrap
 "
 if test $status -ne 0
     echo "❌ Build failed!"

@@ -7,7 +7,6 @@
 
 #define DEV_FAT     0 //dldi
 #define DEV_SD      1 //dsi sd
-#define DEV_PC      2 //image on pc via agb semihosting
 
 #ifdef __cplusplus
 extern "C" {
