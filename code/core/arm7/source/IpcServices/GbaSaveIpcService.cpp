@@ -19,7 +19,7 @@ void GbaSaveIpcService::OnMessageReceived(u32 data)
 
 void GbaSaveIpcService::Update()
 {
-    if (!_saveShared || _saveShared->saveDataSize == 0 || isDSiMode())
+    if (!_saveShared || _saveShared->saveDataSize == 0)
         return;
 
     switch (_saveShared->saveState)
